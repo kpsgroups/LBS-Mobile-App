@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { View, NativeModules, Platform, useWindowDimensions } from "react-native";
 import { Camera } from "expo-camera";
 import { furnitureParts, furnitureName, type Design } from "./model";
 import { finishById } from "./materials";
@@ -98,9 +98,17 @@ export default function TrackedRoom({
     async function start() {
       let message = "";
       try {
-        const viro: Engine = require("@reactvision/react-viro");
+        // Importing the renderer registers built-in materials immediately.
+        // Metro treats a missing native dependency during import as a fatal JS error.
+        const rendererPresent = typeof NativeModules.VRTMaterialManager?.setJSMaterials === "function";
+        const probe = Platform.OS === "android" ? NativeModules.VRTARSceneNavigatorModule?.isARSupportedOnDevice : NativeModules.VRTARUtils?.isARSupported;
+        if (!rendererPresent || typeof probe !== "function") {
+          if (alive) setMarker(true);
+          return;
+        }
+        const { isARSupportedOnDevice } = require("@reactvision/react-viro/dist/components/Utilities/ViroUtils") as Pick<Engine,"isARSupportedOnDevice">;
         const support = await checkRoomTracking(
-          viro.isARSupportedOnDevice,
+          isARSupportedOnDevice,
           () => !alive,
         );
         if (!alive) return;
@@ -118,6 +126,7 @@ export default function TrackedRoom({
           message =
             "Allow camera access in device settings to place your furniture.";
         else if (alive) {
+          const viro: Engine = require("@reactvision/react-viro");
           viro.ViroMaterials.createMaterials({
             ["mrk" + design.finish]: {
               diffuseTexture: finishById(design.finish).image,
