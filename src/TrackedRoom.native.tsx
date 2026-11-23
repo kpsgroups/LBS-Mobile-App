@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import { Camera } from "expo-camera";
 import { furnitureParts, furnitureName, type Design } from "./model";
 import { finishById } from "./materials";
 import { Button, T, s } from "./ui";
+import { lockRoomAnchor, type RoomAnchor } from "./roomAnchor";
 import { checkRoomTracking } from "./arSupport";
 
 type Engine = typeof import("@reactvision/react-viro");
@@ -26,7 +27,7 @@ function Scene() {
     ViroNode,
     ViroBox,
   } = engine;
-  const [anchor, setAnchor] = useState<[number, number, number] | null>(null);
+  const [anchor, setAnchor] = useState<RoomAnchor | null>(null);
   const [light, setLight] = useState(550);
   return (
     <ViroARScene
@@ -40,18 +41,20 @@ function Scene() {
         direction={[-0.4, -1, -0.5]}
         intensity={650}
       />
-      <ViroARPlane
+      {!anchor && <ViroARPlane
         alignment="HorizontalUpward"
         minWidth={design.width / 1000}
         minHeight={design.depth / 1000}
-        onAnchorFound={(plane) => {
-          const center = (plane as unknown as { center?: [number,number,number] }).center ?? [0,0,0];
-          setAnchor(center);
-          placed(true);
+        onAnchorFound={plane => {
+          const pose = lockRoomAnchor(null, plane as unknown as Partial<RoomAnchor>);
+          if (pose) {
+            setAnchor(first => first ?? pose);
+            placed(true);
+          }
         }}
-        onAnchorRemoved={() => { setAnchor(null); placed(false); }}
-      >
-        {anchor && <ViroNode position={anchor} rotation={[0, rotation, 0]}>
+      />}
+      {anchor && <ViroNode position={anchor.position} rotation={anchor.rotation}>
+        <ViroNode position={anchor.center} rotation={[0, rotation, 0]}>
           {furnitureParts(design).map((part) => (
             <ViroBox
               key={part.id}
@@ -66,8 +69,8 @@ function Scene() {
               ]}
             />
           ))}
-        </ViroNode>}
-      </ViroARPlane>
+        </ViroNode>
+      </ViroNode>}
     </ViroARScene>
   );
 }
@@ -79,6 +82,7 @@ export default function TrackedRoom({
   design: Design;
   close: () => void;
 }) {
+  const { height } = useWindowDimensions();
   const [engine, setEngine] = useState<Engine | null>(null),
     [message, setMessage] = useState("Checking room placement support…");
   const [attempt, setAttempt] = useState(0);
@@ -108,7 +112,7 @@ export default function TrackedRoom({
         const permission = await Camera.requestCameraPermissionsAsync();
         if (!permission.granted)
           message =
-            "Allow camera access in device settings to place your wardrobe.";
+            "Allow camera access in device settings to place your furniture.";
         else if (alive) {
           viro.ViroMaterials.createMaterials({
             ["mrk" + design.finish]: {
@@ -149,7 +153,7 @@ export default function TrackedRoom({
               ),
           }}
         >
-          <View style={{ height: 370, width: "100%" }} collapsable={false}>
+          <View style={{ height: Math.min(650, height * 0.62), width: "100%" }} collapsable={false}>
             <engine.ViroARSceneNavigator
               key={session}
               initialScene={initialScene}
@@ -158,7 +162,7 @@ export default function TrackedRoom({
           </View>
           <T>
             {placed
-              ? "Design placed at full size. Walk around to review it."
+              ? tracking ? "Walk around the furniture to see its sides and back." : "Tracking paused. Aim back at the placement area to recover the view."
               : !tracking
                 ? "Move the phone slowly in good light to start tracking."
                 : "Point at clear floor space wide enough for your design. Placement is automatic."}

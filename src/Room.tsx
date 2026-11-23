@@ -35,7 +35,7 @@ export default function Room({
   backLabel: string;
 }) {
   const [background, setBackground] = useState<Background>({ type: "studio" });
-  const [tracked, setTracked] = useState(Platform.OS !== "web"),
+  const [tracked, setTracked] = useState(true),
     [view, setView] = useState("Exterior");
   const [angle, setAngle] = useState(24),
     [scale, setScale] = useState(0.78);
@@ -311,7 +311,7 @@ export default function Room({
           </Button>
         </View>
       )}
-      {Platform.OS !== "web" && (
+      {(
         <Button
           secondary
           onPress={() => {
