@@ -6,13 +6,40 @@ permissions:
   contents: read
   actions: read
 jobs:
+  emulator-apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx expo prebuild --platform android --no-install
+      - working-directory: android
+        env:
+          NODE_ENV: production
+        run: ./gradlew :app:assembleRelease --init-script ../.github/gradle/central-mirror.gradle -PreactNativeArchitectures=x86_64 --max-workers=2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-apk
+          path: android/app/build/outputs/apk/release/*.apk
   preview:
+    needs: emulator-apk
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       BUILD_RUN: '45228434631'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: emulator-apk
+          path: /tmp/lbs-test-apk
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
