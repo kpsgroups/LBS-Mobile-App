@@ -5,7 +5,10 @@ import { furnitureParts, type Design } from "./model";
 import { finishById } from "./materials";
 import { Button, T, s } from "./ui";
 
+import MarkerRoom from "./MarkerRoom";
+
 export default function TrackedRoom({design, close}: {design:Design;close:()=>void}) {
+  const [marker,setMarker]=useState(false);
   const session = useRef<XRSession | null>(null);
   const mounted = useRef(true);
   const [supported,setSupported] = useState(false);
@@ -16,7 +19,7 @@ export default function TrackedRoom({design, close}: {design:Design;close:()=>vo
     Promise.resolve(navigator.xr?.isSessionSupported("immersive-ar")).catch(()=>false).then(ok=>{
       if (mounted.current) {
         setSupported(!!ok);
-        setMessage(ok ? "Aim at clear floor space. Once the furniture appears, walk around it to see it from another angle." : "This browser has no live room tracking. Try the LBS Android app or use a room photo.");
+        setMessage(ok ? "Aim at clear floor space. Once the furniture appears, walk around it to see it from another angle." : "Automatic floor tracking is unavailable here. Use a printed floor marker for a live 3D view.");
       }
     });
     return () => {mounted.current=false; void session.current?.end().catch(()=>{});};
@@ -88,7 +91,9 @@ export default function TrackedRoom({design, close}: {design:Design;close:()=>vo
       if(mounted.current){setBusy(false);setMessage("Live AR could not start. Check camera permission, retry, or use a room photo.");}
     }
   }
+  if(marker)return <MarkerRoom design={design} close={close}/>;
   return <View style={s.section}><T style={s.h2}>Walk around in 3D</T><T style={s.sub}>{message}</T>
     {supported && <Button disabled={busy} onPress={start}>Start live AR</Button>}
+    <Button secondary onPress={()=>setMarker(true)}>Track a printed floor marker</Button>
     <Button secondary onPress={close}>Use camera &amp; photo placement</Button></View>;
 }

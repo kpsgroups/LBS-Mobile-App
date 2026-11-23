@@ -7,6 +7,8 @@ import { Button, T, s } from "./ui";
 import { lockRoomAnchor, type RoomAnchor } from "./roomAnchor";
 import { checkRoomTracking } from "./arSupport";
 
+import MarkerRoom from "./MarkerRoom";
+
 type Engine = typeof import("@reactvision/react-viro");
 interface Session {
   engine: Engine;
@@ -85,6 +87,7 @@ export default function TrackedRoom({
   const { height } = useWindowDimensions();
   const [engine, setEngine] = useState<Engine | null>(null),
     [message, setMessage] = useState("Checking room placement support…");
+  const [marker, setMarker] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [tracking, setTracking] = useState(false);
   const [rotation, setRotation] = useState(0),
@@ -102,6 +105,7 @@ export default function TrackedRoom({
         );
         if (!alive) return;
         if (support !== "ready") {
+          setMarker(true);
           setMessage(
             support === "unsupported"
               ? "This phone reports that full-size AR is unsupported. Use camera & photo placement, then freeze the room to suggest a clear area."
@@ -126,8 +130,9 @@ export default function TrackedRoom({
           setEngine(viro);
         }
       } catch {
+        if (alive) setMarker(true);
         message =
-          "Room placement requires the LBS native build on an ARKit or ARCore device with AR services available.";
+          "Floor tracking did not start. You can track the printed marker with your rear camera.";
       }
       if (alive && message) setMessage(message);
     }
@@ -138,6 +143,7 @@ export default function TrackedRoom({
       alive = false;
     };
   }, [design.finish, attempt]);
+  if (marker) return <MarkerRoom design={design} close={close}/>;
   return (
     <View style={s.section}>
       {engine ? (
@@ -197,6 +203,7 @@ export default function TrackedRoom({
           </Button>
         </>
       )}
+      <Button secondary onPress={()=>setMarker(true)}>Track a printed floor marker</Button>
       <Button onPress={close} secondary>
         Use camera & photo placement
       </Button>
