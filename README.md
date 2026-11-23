@@ -6,13 +6,13 @@ An Expo / React Native mobile app for configuring a wardrobe during a customer v
 
 Use Node.js 22.13 or later and run `npm ci`. Start the browser preview with `npm run web`.
 
-For Android, connect an ARCore-compatible phone with Google Play Services for AR installed, configure the Android SDK and run `npm run android -- --device`. On macOS with Xcode, CocoaPods and device signing configured, connect an ARKit-capable iPhone and run `npm run ios -- --device`. The native commands generate the platform projects and compile an Expo development build with ViroReact. The iOS command also exports the New Architecture setting required during pod installation.
+For Android, connect an Android phone, configure the Android SDK and run `npm run android -- --device`. On macOS with Xcode, CocoaPods and device signing configured, connect an ARKit-capable iPhone and run `npm run ios -- --device`. The native commands generate the platform projects and compile an Expo development build with ViroReact. The iOS command also exports the New Architecture setting required during pod installation.
 
 ## Design and project flow
 
 1. Open **Studio wardrobe**. Change width, height, depth, door count or compartment layout. Switch between exterior and interior views.
 2. Choose a laminate by sample or MRK code. The selected sample follows the design into the preview, room placement and saved specification.
-3. On a supported phone, open **View in room**, grant camera access, scan the floor and tap a detected plane. Turn the model or place it again. The browser and unsupported devices provide the dimensioned preview.
+3. Open **View in room** from the editor or a saved project. Select **Live camera** or **Choose room photo**, tap to position the wardrobe and adjust its size and angle for a visual estimate. **Freeze view** holds the camera background. For measured placement, select **Full-size AR** on a supported phone with ARKit or Google Play Services for AR, scan the floor and tap a detected plane.
 4. Name the project, optionally enter a salesperson's estimate including its currency, and save. Reopen the design from **Projects** or share its specification. Project records stay in local app storage.
 
 ## Model and material sources
@@ -25,4 +25,4 @@ The 18 sample images are crops from the supplied Meraki PVC laminates PDF, pages
 
 Run `npm test` for physical bounds and compartment tests, `npm run check` for TypeScript, and `npx expo export --platform all` to bundle iOS, Android and web.
 
-Before field use, verify detection, permission handling, placement scale and rotation on physical ARKit and ARCore devices against a measured reference. Account login, centralized project storage, customer approval, room photo capture, automated quotations and order administration remain future milestones.
+Before field use, verify detection, permission handling, placement scale and rotation on physical ARKit and ARCore devices against a measured reference. Account login, centralized project storage, customer approval, saved room composites, automated quotations and order administration remain future milestones.

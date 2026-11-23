@@ -61,6 +61,13 @@ function StudioApp() {
     [busy, setBusy] = useState(false),
     [shareError, setShareError] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
+  const [roomFrom, setRoomFrom] = useState<"Editor" | "Specification">(
+    "Editor",
+  );
+  function openRoom(from: "Editor" | "Specification") {
+    setRoomFrom(from);
+    setPage("Room");
+  }
   const saving = useRef(false);
   const scroll = useRef<ScrollView>(null);
   useEffect(() => {
@@ -127,9 +134,9 @@ function StudioApp() {
     }
   }
   const activeTab =
-    page === "Editor" || page === "Room"
+    page === "Editor" || (page === "Room" && roomFrom === "Editor")
       ? "Studio"
-      : page === "Specification"
+      : page === "Specification" || page === "Room"
         ? "Projects"
         : page;
   const nav = (
@@ -331,14 +338,29 @@ function StudioApp() {
               estimate={estimate}
               setEstimate={setEstimate}
               materials={() => setPage("Materials")}
-              room={() => setPage("Room")}
+              room={() => openRoom("Editor")}
               save={save}
               busy={busy}
               error={error}
             />
           )}
           {page === "Room" && (
-            <Room design={design} close={() => setPage("Editor")} />
+            <Room
+              design={
+                roomFrom === "Specification" && selected
+                  ? selected.design
+                  : design
+              }
+              projectName={
+                roomFrom === "Specification" && selected ? selected.name : name
+              }
+              close={() => setPage(roomFrom)}
+              backLabel={
+                roomFrom === "Specification"
+                  ? "Back to project"
+                  : "Back to design"
+              }
+            />
           )}
           {page === "Projects" && (
             <>
@@ -401,7 +423,10 @@ function StudioApp() {
                 </T>
               </View>
               <View style={s.row}>
-                <Button icon="arrow" onPress={() => edit(selected)}>
+                <Button icon="camera" onPress={() => openRoom("Specification")}>
+                  View in room
+                </Button>
+                <Button secondary icon="arrow" onPress={() => edit(selected)}>
                   Edit design
                 </Button>
                 <Button

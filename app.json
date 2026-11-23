@@ -3,7 +3,7 @@
     "name": "LBS Interior Studio",
     "slug": "lbs-interior-studio",
     "scheme": "lbsstudio",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "default",
     "newArchEnabled": true,
     "ios": {
@@ -16,7 +16,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "versionCode": 2
     },
     "plugins": [
       "./plugins/withRoomManifest",
@@ -25,11 +26,20 @@
         "@reactvision/react-viro",
         {
           "android": {
-            "xRMode": ["AR"]
+            "xRMode": [
+              "AR"
+            ]
           },
           "ios": {
             "cameraUsagePermission": "Place your wardrobe in the room using the camera."
           }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a room photo to preview your wardrobe.",
+          "microphonePermission": false
         }
       ]
     ],

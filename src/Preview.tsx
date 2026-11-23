@@ -10,10 +10,14 @@ export function Preview({
   design,
   open = false,
   angle = 24,
+  overlay = false,
+  height = 240,
 }: {
   design: Design;
   open?: boolean;
   angle?: number;
+  overlay?: boolean;
+  height?: number;
 }) {
   const rad = (angle * Math.PI) / 180,
     yaw = Math.cos(rad),
@@ -52,19 +56,21 @@ export function Preview({
         "Wardrobe preview, " + design.bays + " bays, " + finish.name
       }
       style={{
-        backgroundColor: "#eeeae0",
+        backgroundColor: overlay ? "transparent" : "#eeeae0",
         borderRadius: 8,
         overflow: "hidden",
       }}
     >
-      <Svg width="100%" height={240} viewBox="0 0 320 240">
-        <Ellipse
-          cx={160}
-          cy={122 + (h * rise * scale) / 2}
-          rx={footprint * scale * 0.53}
-          ry={7}
-          fill="#c8c4b9"
-        />
+      <Svg width="100%" height={height} viewBox="0 0 320 240">
+        {!overlay && (
+          <Ellipse
+            cx={160}
+            cy={122 + (h * rise * scale) / 2}
+            rx={footprint * scale * 0.53}
+            ry={7}
+            fill="#c8c4b9"
+          />
+        )}
         {parts.map((p) => {
           const [x, y, z] = p.center,
             [hw, hh, hd] = p.size.map((v) => v / 2);

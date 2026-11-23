@@ -4,7 +4,7 @@ import { Camera } from "expo-camera";
 import { wardrobe, type Design } from "./model";
 import { finishById } from "./materials";
 import { Button, T, s } from "./ui";
-import { Preview } from "./Preview";
+import { checkRoomTracking } from "./arSupport";
 
 type Engine = typeof import("@reactvision/react-viro");
 interface Session {
@@ -12,11 +12,12 @@ interface Session {
   design: Design;
   rotation: number;
   placed: () => void;
+  tracked: (state: number) => void;
 }
 const Context = createContext<Session | null>(null);
 
 function Scene() {
-  const { engine, design, rotation, placed } = useContext(Context)!;
+  const { engine, design, rotation, placed, tracked } = useContext(Context)!;
   const {
     ViroARScene,
     ViroAmbientLight,
@@ -26,7 +27,10 @@ function Scene() {
     ViroBox,
   } = engine;
   return (
-    <ViroARScene anchorDetectionTypes={["PlanesHorizontal"]}>
+    <ViroARScene
+      onTrackingUpdated={tracked}
+      anchorDetectionTypes={["PlanesHorizontal"]}
+    >
       <ViroAmbientLight color="#ffffff" intensity={550} />
       <ViroDirectionalLight
         color="#fff7e9"
@@ -35,6 +39,7 @@ function Scene() {
       />
       <ViroARPlaneSelector
         alignment="Horizontal"
+        maxPlanes={4}
         minWidth={0.35}
         minHeight={0.35}
         onPlaneSelected={placed}
@@ -60,7 +65,7 @@ function Scene() {
   );
 }
 const initialScene = { scene: Scene };
-export default function Room({
+export default function TrackedRoom({
   design,
   close,
 }: {
@@ -69,6 +74,8 @@ export default function Room({
 }) {
   const [engine, setEngine] = useState<Engine | null>(null),
     [message, setMessage] = useState("Checking room placement support…");
+  const [attempt, setAttempt] = useState(0);
+  const [tracking, setTracking] = useState(false);
   const [rotation, setRotation] = useState(0),
     [placed, setPlaced] = useState(false),
     [session, setSession] = useState(0);
@@ -78,8 +85,19 @@ export default function Room({
       let message = "";
       try {
         const viro: Engine = require("@reactvision/react-viro");
-        if (!(await viro.isARSupportedOnDevice()).isARSupported)
-          throw new Error();
+        const support = await checkRoomTracking(
+          viro.isARSupportedOnDevice,
+          () => !alive,
+        );
+        if (!alive) return;
+        if (support !== "ready") {
+          setMessage(
+            support === "unsupported"
+              ? "This phone reports that full-size AR is unsupported. Use the camera or a room photo to show the design."
+              : "Room tracking could not start. On Android, check Google Play Services for AR and try again, or return to the camera preview.",
+          );
+          return;
+        }
         const permission = await Camera.requestCameraPermissionsAsync();
         if (!permission.granted)
           message =
@@ -102,27 +120,41 @@ export default function Room({
       }
       if (alive && message) setMessage(message);
     }
+    setEngine(null);
+    setMessage("Checking room placement support…");
     void start();
     return () => {
       alive = false;
     };
-  }, [design.finish]);
+  }, [design.finish, attempt]);
   return (
     <View style={s.section}>
       {engine ? (
         <Context.Provider
-          value={{ engine, design, rotation, placed: () => setPlaced(true) }}
+          value={{
+            engine,
+            design,
+            rotation,
+            placed: () => setPlaced(true),
+            tracked: (state) =>
+              setTracking(
+                state === engine.ViroTrackingStateConstants.TRACKING_NORMAL,
+              ),
+          }}
         >
-          <engine.ViroARSceneNavigator
-            key={session}
-            style={{ height: 370 }}
-            initialScene={initialScene}
-            autofocus
-          />
+          <View style={{ height: 370, width: "100%" }} collapsable={false}>
+            <engine.ViroARSceneNavigator
+              key={session}
+              initialScene={initialScene}
+              autofocus
+            />
+          </View>
           <T>
             {placed
               ? "Wardrobe placed at full size."
-              : "Move slowly to scan the floor, then tap a detected surface."}
+              : !tracking
+                ? "Move the phone slowly in good light to start tracking."
+                : "Move slowly to scan the floor, then tap a detected surface."}
           </T>
           {placed && (
             <View style={s.row}>
@@ -148,12 +180,14 @@ export default function Room({
         </Context.Provider>
       ) : (
         <>
-          <Preview design={design} />
           <T style={s.sub}>{message}</T>
+          <Button secondary onPress={() => setAttempt((n) => n + 1)}>
+            Retry AR
+          </Button>
         </>
       )}
       <Button onPress={close} secondary>
-        Back to design
+        Back to room preview
       </Button>
     </View>
   );
