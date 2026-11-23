@@ -9,7 +9,8 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Camera, CameraView } from "expo-camera";
+import type { CameraView } from "expo-camera";
+import { RoomCamera, requestRoomCameraPermission } from "./RoomCamera";
 import { launchImageLibraryAsync } from "expo-image-picker";
 import { Button, Chips, Label, T, s } from "./ui";
 import { Preview } from "./Preview";
@@ -70,7 +71,7 @@ export default function Room({
     setMessage("");
     setSettings(false);
     try {
-      const permission = await Camera.requestCameraPermissionsAsync();
+      const permission = await requestRoomCameraPermission();
       if (!alive.current) return;
       if (!permission.granted) {
         setMessage(
@@ -160,7 +161,7 @@ export default function Room({
         }}
       >
         {background.type === "camera" && active && (
-          <CameraView
+          <RoomCamera
             ref={camera}
             style={StyleSheet.absoluteFill}
             facing="back"
