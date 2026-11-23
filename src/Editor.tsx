@@ -7,7 +7,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { finishById } from "./materials";
-import { limits, type Design } from "./model";
+import { designLimits, furnitureName, type Design } from "./model";
 import { Preview } from "./Preview";
 import { Button, Chips, Icon, Label, T, Title, color, s } from "./ui";
 
@@ -33,8 +33,8 @@ export function Editor(p: Props) {
   return (
     <View style={{ gap: 20 }}>
       <View>
-        <Label>WARDROBE CONFIGURATOR</Label>
-        <Title>Studio wardrobe</Title>
+        <Label>FURNITURE CONFIGURATOR</Label>
+        <Title>{furnitureName(p.design)}</Title>
       </View>
       <View
         style={{
@@ -53,7 +53,7 @@ export function Editor(p: Props) {
             />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Rotate wardrobe preview"
+              accessibilityLabel="Rotate design preview"
               onPress={() =>
                 setAngle((a) => (a === 24 ? 0 : a === 0 ? -28 : 24))
               }
@@ -70,7 +70,7 @@ export function Editor(p: Props) {
           <View style={s.section}>
             <T style={s.h3}>Dimensions</T>
             {dimensions.map((field) => {
-              const [min, max, step] = limits[field],
+              const [min, max, step] = designLimits(p.design)[field],
                 value = p.design[field];
               return (
                 <View key={field} style={s.between}>
@@ -101,7 +101,7 @@ export function Editor(p: Props) {
                             onPress={() =>
                               p.change({
                                 ...p.design,
-                                [field]: value + dir * step,
+                                [field]: Math.max(min, Math.min(max, value + dir * step)),
                               })
                             }
                             style={{
@@ -126,15 +126,15 @@ export function Editor(p: Props) {
             })}
           </View>
           <View style={s.line} />
-          <View style={s.section}>
-            <T style={s.h3}>Doors & compartments</T>
+          {!["bed", "dining", "desk", "vanity", "media"].includes(p.design.kind ?? "wardrobe") && <View style={s.section}>
+            <T style={s.h3}>Sections</T>
             <Chips
               label="Door count"
               values={[2, 3, 4]}
               selected={p.design.bays}
               select={(bays) => p.change({ ...p.design, bays })}
             />
-            <T style={s.sub}>Interior layout</T>
+            {(!p.design.kind || p.design.kind === "wardrobe") && <><T style={s.sub}>Interior layout</T>
             <Chips
               values={["Mixed", "Shelves", "Hanging"] as const}
               selected={p.design.layout}
@@ -143,7 +143,7 @@ export function Editor(p: Props) {
                 setView("Interior");
               }}
             />
-          </View>
+          </>}</View>}
           <Pressable
             onPress={p.materials}
             accessibilityRole="button"

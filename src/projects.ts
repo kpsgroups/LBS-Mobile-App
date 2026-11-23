@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { finishes } from "./materials";
-import { limits, type Design } from "./model";
+import { designLimits, furniture, type Design } from "./model";
 
 export interface Project {
   id: string;
@@ -21,8 +21,9 @@ function isProject(item: unknown): item is Project {
     typeof p.updated === "string" &&
     Number.isFinite(Date.parse(p.updated)) &&
     !!d &&
-    Object.entries(limits).every(([field, [min, max]]) => {
-      const n = d[field as keyof typeof limits];
+    (d.kind === undefined || Object.prototype.hasOwnProperty.call(furniture, d.kind)) &&
+    Object.entries(designLimits(d)).every(([field, [min, max]]) => {
+      const n = d[field as "width" | "height" | "depth" | "bays"];
       return Number.isInteger(n) && n >= min && n <= max;
     }) &&
     ["Mixed", "Shelves", "Hanging"].includes(d.layout) &&

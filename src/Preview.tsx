@@ -1,7 +1,7 @@
 import React from "react";
 import { View } from "react-native";
 import Svg, { Ellipse, G, Image as Texture, Polygon } from "react-native-svg";
-import { wardrobe, type Design, type Part, type Triple } from "./model";
+import { furnitureParts, furnitureName, type Design, type Part, type Triple } from "./model";
 import { finishById } from "./materials";
 
 // Orthographic projection of the same metre-scale boxes used in AR.
@@ -40,7 +40,7 @@ export function Preview({
     ];
   }
   const finish = finishById(design.finish);
-  const parts = wardrobe(design, open);
+  const parts = furnitureParts(design, open);
   function layer(p: Part) {
     if (p.id === "back") return -100;
     if (p.id === "top") return 80;
@@ -53,7 +53,7 @@ export function Preview({
   return (
     <View
       accessibilityLabel={
-        "Wardrobe preview, " + design.bays + " bays, " + finish.name
+        furnitureName(design) + " preview, " + finish.name
       }
       style={{
         backgroundColor: overlay ? "transparent" : "#eeeae0",

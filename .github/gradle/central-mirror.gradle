@@ -7,6 +7,11 @@ def useCentralMirror = { repositories ->
     }
 }
 beforeSettings { settings ->
+    settings.pluginManagement.repositories {
+        maven { url = uri('https://maven-central.storage-download.googleapis.com/maven2') }
+        google()
+        gradlePluginPortal()
+    }
     useCentralMirror(settings.pluginManagement.repositories)
     useCentralMirror(settings.dependencyResolutionManagement.repositories)
 }

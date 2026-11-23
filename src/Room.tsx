@@ -12,11 +12,12 @@ import {
 import type { CameraView } from "expo-camera";
 import { RoomCamera, requestRoomCameraPermission } from "./RoomCamera";
 import { launchImageLibraryAsync } from "expo-image-picker";
+import { suggestPlacement } from "./photoPlacement";
 import { Button, Chips, Label, T, s } from "./ui";
 import { Preview } from "./Preview";
 import TrackedRoom from "./TrackedRoom";
 import { finishById } from "./materials";
-import type { Design } from "./model";
+import { furnitureName, type Design } from "./model";
 
 type Background =
   | { type: "studio" }
@@ -34,7 +35,7 @@ export default function Room({
   backLabel: string;
 }) {
   const [background, setBackground] = useState<Background>({ type: "studio" });
-  const [tracked, setTracked] = useState(false),
+  const [tracked, setTracked] = useState(Platform.OS !== "web"),
     [view, setView] = useState("Exterior");
   const [angle, setAngle] = useState(24),
     [scale, setScale] = useState(0.78);
@@ -67,6 +68,7 @@ export default function Room({
     return () => back.remove();
   }, [tracked, close]);
   async function startCamera() {
+    currentPhoto.current = "";
     setPending(true);
     setMessage("");
     setSettings(false);
@@ -91,6 +93,20 @@ export default function Room({
       if (alive.current) setPending(false);
     }
   }
+  const currentPhoto = useRef("");
+  async function placePhoto(uri: string) {
+    currentPhoto.current = uri;
+    setBackground({ type:"photo", uri });
+    setMessage("Finding a clear area in the room photo…");
+    try {
+      const suggestion = await suggestPlacement(uri, frame);
+      if (!alive.current || currentPhoto.current !== uri) return;
+      setPoint(suggestion);
+      setMessage("Suggested position from the room photo. Tap to adjust and check the fit by eye.");
+    } catch {
+      if (alive.current && currentPhoto.current === uri) setMessage("Tap the room photo to position the design.");
+    }
+  }
   async function choosePhoto() {
     setMessage("");
     setSettings(false);
@@ -100,7 +116,7 @@ export default function Room({
         quality: 0.88,
       });
       if (alive.current && !result.canceled && result.assets[0])
-        setBackground({ type: "photo", uri: result.assets[0].uri });
+        await placePhoto(result.assets[0].uri);
     } catch {
       if (alive.current)
         setMessage(
@@ -116,7 +132,7 @@ export default function Room({
         shutterSound: false,
       });
       if (alive.current && photo)
-        setBackground({ type: "photo", uri: photo.uri });
+        await placePhoto(photo.uri);
     } catch {
       if (alive.current)
         setMessage(
@@ -139,11 +155,11 @@ export default function Room({
     Math.min(frame.height - height, point.y * frame.height - height / 2),
   );
   if (tracked)
-    return <TrackedRoom design={design} close={() => setTracked(false)} />;
+    return <TrackedRoom design={design} close={() => { setTracked(false); void startCamera(); }} />;
   return (
     <View style={s.section}>
       <Label>CUSTOMER PREVIEW</Label>
-      <T style={s.h2}>{projectName.trim() || "Studio wardrobe"}</T>
+      <T style={s.h2}>{projectName.trim() || furnitureName(design)}</T>
       <T style={s.sub}>
         {design.width} × {design.height} × {design.depth} mm · {finish.name} ·
         MRK-{finish.id}
@@ -205,7 +221,7 @@ export default function Room({
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Position wardrobe in room"
+              accessibilityLabel="Position design in room"
               style={StyleSheet.absoluteFill}
               onPress={(e) => {
                 if (frame.width && frame.height)
@@ -227,13 +243,13 @@ export default function Room({
       </View>
       {inRoom && (
         <T style={s.sub}>
-          Tap the room to position the wardrobe. Size is adjusted by eye.
+          Tap the room to position the design. Size is adjusted by eye.
         </T>
       )}
       <View style={s.row}>
         {background.type === "camera" ? (
           <Button icon="camera" disabled={!ready || pending} onPress={freeze}>
-            Freeze view
+            Freeze & auto-place
           </Button>
         ) : (
           <Button icon="camera" disabled={pending} onPress={startCamera}>

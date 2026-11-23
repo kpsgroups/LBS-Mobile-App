@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { View } from "react-native";
 import { Camera } from "expo-camera";
-import { wardrobe, type Design } from "./model";
+import { furnitureParts, furnitureName, type Design } from "./model";
 import { finishById } from "./materials";
 import { Button, T, s } from "./ui";
 import { checkRoomTracking } from "./arSupport";
@@ -11,7 +11,7 @@ interface Session {
   engine: Engine;
   design: Design;
   rotation: number;
-  placed: () => void;
+  placed: (value: boolean) => void;
   tracked: (state: number) => void;
 }
 const Context = createContext<Session | null>(null);
@@ -22,30 +22,37 @@ function Scene() {
     ViroARScene,
     ViroAmbientLight,
     ViroDirectionalLight,
-    ViroARPlaneSelector,
+    ViroARPlane,
     ViroNode,
     ViroBox,
   } = engine;
+  const [anchor, setAnchor] = useState<[number, number, number] | null>(null);
+  const [light, setLight] = useState(550);
   return (
     <ViroARScene
+      onAmbientLightUpdate={({ intensity }) => { if (Number.isFinite(intensity)) setLight(Math.max(200, Math.min(1200, Math.round(intensity / 100) * 100))); }}
       onTrackingUpdated={tracked}
       anchorDetectionTypes={["PlanesHorizontal"]}
     >
-      <ViroAmbientLight color="#ffffff" intensity={550} />
+      <ViroAmbientLight color="#ffffff" intensity={light} />
       <ViroDirectionalLight
         color="#fff7e9"
         direction={[-0.4, -1, -0.5]}
         intensity={650}
       />
-      <ViroARPlaneSelector
-        alignment="Horizontal"
-        maxPlanes={4}
-        minWidth={0.35}
-        minHeight={0.35}
-        onPlaneSelected={placed}
+      <ViroARPlane
+        alignment="HorizontalUpward"
+        minWidth={design.width / 1000}
+        minHeight={design.depth / 1000}
+        onAnchorFound={(plane) => {
+          const center = (plane as unknown as { center?: [number,number,number] }).center ?? [0,0,0];
+          setAnchor(center);
+          placed(true);
+        }}
+        onAnchorRemoved={() => { setAnchor(null); placed(false); }}
       >
-        <ViroNode rotation={[0, rotation, 0]}>
-          {wardrobe(design).map((part) => (
+        {anchor && <ViroNode position={anchor} rotation={[0, rotation, 0]}>
+          {furnitureParts(design).map((part) => (
             <ViroBox
               key={part.id}
               width={part.size[0]}
@@ -59,8 +66,8 @@ function Scene() {
               ]}
             />
           ))}
-        </ViroNode>
-      </ViroARPlaneSelector>
+        </ViroNode>}
+      </ViroARPlane>
     </ViroARScene>
   );
 }
@@ -93,7 +100,7 @@ export default function TrackedRoom({
         if (support !== "ready") {
           setMessage(
             support === "unsupported"
-              ? "This phone reports that full-size AR is unsupported. Use the camera or a room photo to show the design."
+              ? "This phone reports that full-size AR is unsupported. Use camera & photo placement, then freeze the room to suggest a clear area."
               : "Room tracking could not start. On Android, check Google Play Services for AR and try again, or return to the camera preview.",
           );
           return;
@@ -135,7 +142,7 @@ export default function TrackedRoom({
             engine,
             design,
             rotation,
-            placed: () => setPlaced(true),
+            placed: setPlaced,
             tracked: (state) =>
               setTracking(
                 state === engine.ViroTrackingStateConstants.TRACKING_NORMAL,
@@ -151,10 +158,10 @@ export default function TrackedRoom({
           </View>
           <T>
             {placed
-              ? "Wardrobe placed at full size."
+              ? "Design placed at full size. Walk around to review it."
               : !tracking
                 ? "Move the phone slowly in good light to start tracking."
-                : "Move slowly to scan the floor, then tap a detected surface."}
+                : "Point at clear floor space wide enough for your design. Placement is automatic."}
           </T>
           {placed && (
             <View style={s.row}>
@@ -187,7 +194,7 @@ export default function TrackedRoom({
         </>
       )}
       <Button onPress={close} secondary>
-        Back to room preview
+        Use camera & photo placement
       </Button>
     </View>
   );

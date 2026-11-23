@@ -15,7 +15,8 @@ import { DMSans_400Regular } from "@expo-google-fonts/dm-sans/400Regular";
 import { DMSans_600SemiBold } from "@expo-google-fonts/dm-sans/600SemiBold";
 import { Materials, Tile, type Finish } from "./FinishLibrary";
 import { finishes, finishById } from "./materials";
-import { initialDesign } from "./model";
+import { furniture, furnitureName, kinds, newDesign, initialDesign } from "./model";
+import { FurnitureCatalog } from "./FurnitureCatalog";
 import { Editor } from "./Editor";
 import { readProjects, saveProject, type Project } from "./projects";
 import Room from "./Room";
@@ -41,9 +42,9 @@ function spec(p: Project) {
   return [
     "LBS Interior Studio",
     p.name,
-    "Studio wardrobe",
+    furnitureName(d),
     `Width ${d.width} mm × height ${d.height} mm × depth ${d.depth} mm`,
-    `${d.bays} hinged doors · ${d.layout} layout`,
+    ...(!d.kind || d.kind === "wardrobe" ? [`${d.bays} hinged doors · ${d.layout} layout`] : []),
     `Meraki PVC laminate · ${f.name} · MRK-${f.id}`,
     p.estimate ? "Estimate: " + p.estimate : "Estimate pending",
   ].join("\n");
@@ -230,6 +231,7 @@ function StudioApp() {
       </View>
       <ScrollView
         ref={scroll}
+        removeClippedSubviews={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ alignItems: "center", paddingBottom: 34 }}
       >
@@ -244,57 +246,7 @@ function StudioApp() {
         >
           {page === "Studio" && (
             <>
-              <Title>Design studio</Title>
-              <View
-                style={{
-                  flexDirection: wide ? "row" : "column",
-                  borderRadius: 10,
-                  overflow: "hidden",
-                  backgroundColor: "#eae4d6",
-                }}
-              >
-                <View
-                  style={{ width: wide ? "58%" : "100%", aspectRatio: 1.5 }}
-                >
-                  <Image
-                    source={require("../assets/studio-wardrobe.jpg")}
-                    resizeMode="cover"
-                    accessibilityLabel="Studio wardrobe in honey oak beside a stone bench"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      position: "absolute",
-                    }}
-                  />
-                </View>
-                <View
-                  style={{
-                    flex: 1,
-                    padding: wide ? 30 : 20,
-                    justifyContent: "center",
-                    alignItems: "flex-start",
-                    gap: 12,
-                  }}
-                >
-                  <Label>FURNITURE COLLECTION</Label>
-                  <T
-                    style={{
-                      fontFamily: "Instrument",
-                      fontSize: wide ? 50 : 38,
-                      lineHeight: wide ? 54 : 42,
-                    }}
-                  >
-                    Studio wardrobe
-                  </T>
-                  <T style={[s.sub, { maxWidth: 330 }]}>
-                    A full-height wardrobe with hinged doors, adjustable bays
-                    and your choice of laminate.
-                  </T>
-                  <Button onPress={() => setPage("Editor")} icon="arrow">
-                    {id ? "Continue design" : "Configure wardrobe"}
-                  </Button>
-                </View>
-              </View>
+              <FurnitureCatalog choose={item => { edit(); setDesign({ ...item.design }); }} />
               <View style={s.between}>
                 <View style={{ gap: 3 }}>
                   <Label>MERAKI PVC LAMINATES</Label>
@@ -375,7 +327,7 @@ function StudioApp() {
                   </T>
                 ) : projects.length === 0 ? (
                   <T style={s.sub}>
-                    Save a wardrobe design to keep its dimensions, finish and
+                    Save a furniture design to keep its dimensions, finish and
                     estimate here.
                   </T>
                 ) : (
@@ -397,7 +349,7 @@ function StudioApp() {
                       <View style={{ flex: 1, gap: 4 }}>
                         <T style={s.h3}>{p.name}</T>
                         <T style={s.sub}>
-                          {p.design.bays} doors · MRK-{p.design.finish}
+                          {furnitureName(p.design)} · MRK-{p.design.finish}
                         </T>
                       </View>
                       <Icon name="arrow" />
@@ -405,7 +357,7 @@ function StudioApp() {
                   ))
                 )}
               </View>
-              <Button icon="plus" onPress={() => edit()}>
+              <Button icon="plus" onPress={() => setPage("Studio")}>
                 New design
               </Button>
             </>
