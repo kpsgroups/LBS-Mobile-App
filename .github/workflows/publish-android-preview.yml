@@ -1,0 +1,31 @@
+name: Publish verified Android preview
+on:
+  push:
+    branches: [publish/android-v0.1.0]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve the built app
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 45224796704
+          github-token: ${{ github.token }}
+          name: lbs-android
+          path: ${{ runner.temp }}/lbs-release
+      - name: Apply the preview signature and verify exact APK
+        working-directory: ${{ runner.temp }}/lbs-release
+        run: |
+          git apply --binary "$GITHUB_WORKSPACE/.github/release/preview-signature.patch"
+          mv app-release.apk LBS-Interior-Studio-0.1.0.apk
+          echo '3ab5670db7167801ba445dd06b22dea2162b3fec7984bc6a8ee8e13c502aa9a6  LBS-Interior-Studio-0.1.0.apk' | sha256sum -c -
+      - name: Publish APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.1.0 "$RUNNER_TEMP/lbs-release/LBS-Interior-Studio-0.1.0.apk" --target c214b795a26e2d3a677330975274a05f962adaa2 --title 'LBS Interior Studio 0.1.0 for Android' --notes-file .github/release/android-notes.md --prerelease
