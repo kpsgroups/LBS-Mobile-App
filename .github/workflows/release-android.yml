@@ -1,0 +1,94 @@
+name: Release signed Android preview
+# Builds the APK, signs it with the LBS preview key held in Actions secrets and
+# publishes a GitHub pre-release tagged from the version in app.json.
+# Push a branch named release/android-v<version> (for example release/android-v0.1.6) to run it.
+on:
+  push:
+    branches: ["release/android-v*"]
+permissions:
+  contents: write
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # Certificate that signed v0.1.1–v0.1.5. Updates only install over those builds
+      # when the same key signs them, so the job stops if any other key is supplied.
+      EXPECTED_CERT_SHA256: c837577a960736232c9ee91dfe6a625712b094f01aeea9e775d597cb5eaea503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the branch matches the app version
+        id: version
+        run: |
+          version=$(node -p "require('./app.json').expo.version")
+          if [ "release/android-v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Branch $GITHUB_REF_NAME does not match app.json version $version"; exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "::error::Tag v$version already exists"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Check signing secrets are present
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          for name in KEYSTORE STORE_PASSWORD KEY_ALIAS; do
+            if [ -z "${!name}" ]; then echo "::error::Missing Actions secret for $name"; exit 1; fi
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci
+      - run: npm test
+      - run: npm run check
+      - run: npx expo prebuild --platform android --no-install
+      - name: Build APK
+        working-directory: android
+        env:
+          NODE_ENV: production
+        run: ./gradlew :app:assembleRelease --init-script ../.github/gradle/central-mirror.gradle -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --max-workers=2
+      - name: Sign with the LBS preview key and verify the certificate
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          keystore="$RUNNER_TEMP/lbs-preview.keystore"
+          echo "$KEYSTORE" | base64 -d > "$keystore"
+          out="$RUNNER_TEMP/LBS-Interior-Studio-$VERSION.apk"
+          export KEY_PASSWORD="${KEY_PASSWORD:-$STORE_PASSWORD}"
+          "$tools/apksigner" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --v1-signing-enabled true --v2-signing-enabled true \
+            --out "$out" android/app/build/outputs/apk/release/app-release.apk
+          rm -f "$keystore"
+          "$tools/apksigner" verify --print-certs "$out" | tee "$RUNNER_TEMP/certs.txt"
+          actual=$(grep -m1 'certificate SHA-256 digest' "$RUNNER_TEMP/certs.txt" | awk '{print $NF}')
+          if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::Signed with certificate $actual, expected $EXPECTED_CERT_SHA256 (the key that signed earlier releases)"; exit 1
+          fi
+          sha256sum "$out"
+          echo "APK=$out" >> "$GITHUB_ENV"
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" "$APK" public/LBS-floor-marker.pdf \
+            --target "$GITHUB_SHA" \
+            --title "LBS Interior Studio $VERSION for Android" \
+            --notes-file .github/release/android-notes.md \
+            --prerelease
