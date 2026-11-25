@@ -1,3 +1,5 @@
+import { builders } from "./designs.ts";
+
 export type FinishId = number | string;
 export type Layout = "Shelves" | "Hanging" | "Mixed";
 export interface Design {
@@ -9,6 +11,10 @@ export interface Design {
   bays: number;
   layout: Layout;
   finish: FinishId;
+  // Second and third laminates for designs with feature panels (marble, stone,
+  // gloss) or detail parts (slats, shelves). Older designs leave them unset.
+  accent?: FinishId;
+  detail?: FinishId;
 }
 export const limits = {
   width: [900, 3000, 100],
@@ -25,12 +31,24 @@ export const initialDesign: Design = {
   finish: 12073,
 };
 export type Triple = [number, number, number];
-type Surface = "finish" | "interior" | "hardware" | "plinth";
+// finish, accent and detail are Meraki laminates chosen per design. The rest are
+// fixed materials: LED strips (glow), bronze mirror, gold trim and a TV screen.
+export type Surface =
+  | "finish" | "accent" | "detail"
+  | "interior" | "hardware" | "plinth"
+  | "glow" | "mirror" | "trim" | "screen";
+export const laminateSurfaces = ["finish", "accent", "detail"] as const;
+export type LaminateSurface = (typeof laminateSurfaces)[number];
+export type Point = [number, number];
 export type Part = {
   id: string;
   center: Triple;
+  // Bounding box. For a shaped part, size[2] is the extrusion depth.
   size: Triple;
   surface: Surface;
+  // Optional front outline (arches, discs, curves) relative to the centre in the
+  // XY plane, extruded along Z by size[2]. Parts without one are plain boxes.
+  outline?: Point[];
 };
 
 // Geometry is expressed in metres. The local origin is the centre of the footprint at floor level.
@@ -132,18 +150,60 @@ export const furniture = {
   dining: { name: "Dining table", size: [1800, 750, 900], finish: 12072 },
   nightstand: { name: "Bedside drawers", size: [500, 500, 400], finish: 12076 },
   partition: { name: "Slatted partition", size: [1200, 2200, 250], finish: 12081 },
+  archMirror: { name: "Arch mirror partition", size: [2400, 2700, 100], finish: 9033 },
+  jaaliArch: { name: "Lattice archway", size: [2400, 2400, 350], finish: 12077 },
+  nicheArch: { name: "Niche archway", size: [2700, 2600, 400], finish: 12073 },
+  flutedStone: { name: "Fluted stone wall", size: [3000, 2700, 80], finish: 12077 },
+  marbleSlat: { name: "Marble & slat wall", size: [3200, 2700, 60], finish: 12073 },
+  slabGold: { name: "Gold inlay marble wall", size: [3600, 2700, 40], finish: 3012 },
+  neroWall: { name: "Nero feature wall", size: [3600, 2700, 80], finish: 12079 },
+  nicheSlat: { name: "Slatted niche wall", size: [3000, 2700, 250], finish: 12071 },
+  archShelves: { name: "Arch niche shelving", size: [3000, 2700, 350], finish: "3002A" },
+  haloTv: { name: "Halo TV wall", size: [2800, 2600, 350], finish: 12077 },
+  waveTv: { name: "Sculpted wave TV wall", size: [3600, 2700, 350], finish: 9032 },
+  archTv: { name: "Marble arch TV unit", size: [3200, 2700, 450], finish: 546 },
+  glowTv: { name: "Glow frame TV wall", size: [3400, 2700, 350], finish: 12074 },
+  arcWardrobe: { name: "Arc dressing wardrobe", size: [3600, 2700, 600], finish: 546 },
+  glossWardrobe: { name: "Gloss window wardrobe", size: [3600, 2700, 600], finish: 515 },
 } as const;
+// Second and third laminates and the meaning of the section count for the
+// feature walls, TV units, archways and designer wardrobes.
+const extras: Partial<Record<FurnitureKind, { accent?: FinishId; detail?: FinishId; sections?: string }>> = {
+  archMirror: { accent: 12077, sections: "Mirror pairs" },
+  jaaliArch: { accent: 501 },
+  nicheArch: { accent: 9018 },
+  flutedStone: { accent: 3014, sections: "Wood sections" },
+  marbleSlat: { accent: 3013 },
+  slabGold: { sections: "Gold joints" },
+  neroWall: { accent: 3029 },
+  nicheSlat: { sections: "Niche columns" },
+  archShelves: { accent: 3037, detail: 12073 },
+  waveTv: { accent: 3037 },
+  archTv: { accent: 3013, detail: 12073 },
+  glowTv: { accent: 3016 },
+  arcWardrobe: { detail: 12077 },
+};
+export function sectionLabel(d: Design): string | null {
+  const kind = d.kind ?? "wardrobe";
+  if (kind in builders) return extras[kind]?.sections ?? null;
+  return ["bed", "dining", "desk", "vanity", "media"].includes(kind) ? null : "Door count";
+}
 export type FurnitureKind = keyof typeof furniture;
 export const kinds = Object.keys(furniture) as FurnitureKind[];
 export const furnitureName = (d: Design) => products.find(p => p.key === d.product && p.design.kind === d.kind)?.title ?? furniture[d.kind ?? "wardrobe"].name;
 export function newDesign(kind: FurnitureKind): Design {
   const { size: [width, height, depth], finish } = furniture[kind];
-  return { ...initialDesign, width, height, depth, finish, kind };
+  const { accent, detail } = extras[kind] ?? {};
+  return { ...initialDesign, width, height, depth, finish, kind, ...(accent !== undefined && { accent }), ...(detail !== undefined && { detail }) };
 }
 export function designLimits(d: Design) {
   if (!d.kind || d.kind === "wardrobe") return limits;
   const [w, h, z] = furniture[d.kind].size;
-  const range = (base: number) => [Math.round(base * 0.6 / 50) * 50, Math.round(base * 1.5 / 50) * 50, 50] as const;
+  // Thin wall panels change depth in 10 mm steps so the minimum never rounds to zero.
+  const range = (base: number) => {
+    const step = base < 300 ? 10 : 50;
+    return [Math.round(base * 0.6 / step) * step, Math.round(base * 1.5 / step) * step, step] as const;
+  };
   return { width: range(w), height: range(h), depth: range(z), bays: limits.bays };
 }
 
@@ -152,8 +212,13 @@ export function furnitureParts(d: Design, open = false): Part[] {
   const w = d.width / 1000, h = d.height / 1000, z = d.depth / 1000;
   const parts: Part[] = [];
   const t = 0.018;
-  function box(id: string, size: Triple, center: Triple, surface: Surface = "finish") {
-    parts.push({ id, size, center, surface });
+  function box(id: string, size: Triple, center: Triple, surface: Surface = "finish", outline?: Point[]) {
+    parts.push(outline ? { id, size, center, surface, outline } : { id, size, center, surface });
+  }
+  const build = builders[d.kind];
+  if (build) {
+    build(box, { w, h, z, n: d.bays, open });
+    return parts;
   }
   function shelves(id: string, width: number, height: number, depth: number, cx: number, cy: number, cz: number, bays: number, levels: number, doors: boolean) {
     const floor = cy - height / 2, front = cz + depth / 2;
@@ -233,6 +298,21 @@ function product(key: string, kind: FurnitureKind, title: string, category: stri
 }
 export const products = [
   product("studio-wardrobe","wardrobe","Studio wardrobe","Wardrobes"),
+  product("arch-marble-tv","archTv","Marble arch TV unit","TV units"),
+  product("halo-tv-wall","haloTv","Halo TV wall","TV units"),
+  product("wave-tv-wall","waveTv","Sculpted wave TV wall","TV units"),
+  product("glow-tv-wall","glowTv","Glow frame TV wall","TV units"),
+  product("marble-slat-wall","marbleSlat","Marble & slat wall","Wall panels"),
+  product("nero-feature-wall","neroWall","Nero feature wall","Wall panels"),
+  product("fluted-stone-wall","flutedStone","Fluted stone wall","Wall panels",{bays:3}),
+  product("gold-inlay-wall","slabGold","Gold inlay marble wall","Wall panels",{bays:3}),
+  product("niche-slat-wall","nicheSlat","Slatted niche wall","Wall panels",{bays:3}),
+  product("arch-niche-shelving","archShelves","Arch niche shelving","Wall panels"),
+  product("arch-mirror-partition","archMirror","Arch mirror partition","Partitions",{bays:2}),
+  product("lattice-archway","jaaliArch","Lattice archway","Partitions"),
+  product("niche-archway","nicheArch","Niche archway","Partitions"),
+  product("arc-dressing-wardrobe","arcWardrobe","Arc dressing wardrobe","Wardrobes"),
+  product("gloss-window-wardrobe","glossWardrobe","Gloss window wardrobe","Wardrobes"),
   product("galley-kitchen","kitchen","Galley kitchen","Kitchens"),
   product("media-console","media","Low media console","Living"),
   product("platform-bed","bed","Oak platform bed","Bedroom",{finish:12073}),

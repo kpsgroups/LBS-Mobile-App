@@ -3,7 +3,7 @@
     "name": "LBS Interior Studio",
     "slug": "lbs-interior-studio",
     "scheme": "lbsstudio",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "orientation": "default",
     "newArchEnabled": true,
     "ios": {
@@ -17,7 +17,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
-      "versionCode": 9
+      "versionCode": 10
     },
     "plugins": [
       "./plugins/withRoomManifest",

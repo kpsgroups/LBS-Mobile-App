@@ -27,7 +27,8 @@ function isProject(item: unknown): item is Project {
       return Number.isInteger(n) && n >= min && n <= max;
     }) &&
     ["Mixed", "Shelves", "Hanging"].includes(d.layout) &&
-    finishes.some((f) => f.id === d.finish)
+    finishes.some((f) => f.id === d.finish) &&
+    [d.accent, d.detail].every((id) => id === undefined || finishes.some((f) => f.id === id))
   );
 }
 export async function readProjects(): Promise<Project[]> {

@@ -3,6 +3,7 @@ import type { Design } from "./model";
 export default function TrackedRoom(_props: {
   design: Design;
   close: () => void;
+  change?: (d: Design) => void;
 }) {
   return null;
 }
