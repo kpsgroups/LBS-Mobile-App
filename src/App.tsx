@@ -15,7 +15,7 @@ import { DMSans_400Regular } from "@expo-google-fonts/dm-sans/400Regular";
 import { DMSans_600SemiBold } from "@expo-google-fonts/dm-sans/600SemiBold";
 import { Materials, Tile, type Finish } from "./FinishLibrary";
 import { finishes, finishById } from "./materials";
-import { furniture, furnitureName, kinds, newDesign, initialDesign } from "./model";
+import { furniture, furnitureName, kinds, newDesign, initialDesign, furnitureParts, type LaminateSurface } from "./model";
 import { FurnitureCatalog } from "./FurnitureCatalog";
 import { Editor } from "./Editor";
 import { readProjects, saveProject, type Project } from "./projects";
@@ -36,6 +36,16 @@ const icons: Record<(typeof tabs)[number], IconName> = {
   Projects: "projects",
 };
 const featured = [finishes[0], finishes[4], finishById(9018), finishById(9033)];
+// Feature-panel and detail laminates, listed only when the design uses them.
+function laminateLines(d: Project["design"]) {
+  const used = new Set(furnitureParts(d).map((part) => part.surface));
+  return ([["accent", "Feature panel"], ["detail", "Detail laminate"]] as const)
+    .filter(([slot]) => used.has(slot) && d[slot] !== undefined)
+    .map(([slot, label]) => {
+      const f = finishById(d[slot]!);
+      return `${label} · ${f.name} · MRK-${f.id}`;
+    });
+}
 function spec(p: Project) {
   const d = p.design,
     f = finishById(d.finish);
@@ -46,6 +56,7 @@ function spec(p: Project) {
     `Width ${d.width} mm × height ${d.height} mm × depth ${d.depth} mm`,
     ...(!d.kind || d.kind === "wardrobe" ? [`${d.bays} hinged doors · ${d.layout} layout`] : []),
     `Meraki PVC laminate · ${f.name} · MRK-${f.id}`,
+    ...laminateLines(d),
     p.estimate ? "Estimate: " + p.estimate : "Estimate pending",
   ].join("\n");
 }
@@ -95,8 +106,16 @@ function StudioApp() {
     setError("");
     setPage("Editor");
   }
+  // Which laminate the material library is choosing: the main finish unless
+  // the editor opened it for a feature panel or detail laminate.
+  const [slot, setSlot] = useState<LaminateSurface>("finish");
+  function openPage(next: Page) {
+    if (next === "Materials") setSlot("finish");
+    setPage(next);
+  }
   function choose(f: Finish) {
-    setDesign((d) => ({ ...d, finish: f.id }));
+    setDesign((d) => ({ ...d, [slot]: f.id }));
+    setSlot("finish");
     setPage("Editor");
   }
   async function save() {
@@ -153,7 +172,7 @@ function StudioApp() {
           key={tab}
           accessibilityRole="button"
           accessibilityState={{ selected: activeTab === tab }}
-          onPress={() => setPage(tab)}
+          onPress={() => openPage(tab)}
           style={{
             flex: wide ? undefined : 1,
             flexDirection: wide ? "row" : "column",
@@ -254,7 +273,7 @@ function StudioApp() {
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => setPage("Materials")}
+                  onPress={() => openPage("Materials")}
                   style={[s.row, { paddingVertical: 10 }]}
                 >
                   <T style={{ fontSize: 13 }}>View all</T>
@@ -289,7 +308,10 @@ function StudioApp() {
               setName={setName}
               estimate={estimate}
               setEstimate={setEstimate}
-              materials={() => setPage("Materials")}
+              materials={(next) => {
+                setSlot(next);
+                setPage("Materials");
+              }}
               room={() => openRoom("Editor")}
               save={save}
               busy={busy}

@@ -12,10 +12,13 @@ For Android, connect an Android phone, configure the Android SDK and run `npm ru
 
 1. Open **Studio wardrobe**. Change width, height, depth, door count or compartment layout. Switch between exterior and interior views.
 2. Choose a laminate by sample or MRK code. The selected sample follows the design into the preview, room placement and saved specification.
+   The catalog also has TV units, wall panels, partitions and designer wardrobes with marble, stone, gloss and slatted feature panels, LED strips, bronze mirrors and gold trims. These designs take up to three Meraki laminates: the main laminate, a **feature panel** (for example the marble slab) and a **detail finish** (for example slats or shelves). The editor shows a picker for each laminate the design uses, and the specification lists all of them.
 3. Open **View in room** from the editor or a saved project. On a phone with ARKit or Google Play Services for AR, full-size AR opens full screen. A translucent model and a white outline of its real footprint follow the floor under the screen centre, facing the customer. Tap **Place here**, then drag to move it along the floor, use two fingers or **Turn 15°** to rotate, **Open doors** to see the interior and **Move** to place it again without restarting tracking. The on-screen hint explains limited tracking (moving too fast, low light). If Google Play Services for AR is missing or out of date, the app prompts to install it, and shows the reason with an install link and **Try again** if AR does not start. Phones that Google reports cannot run AR use **Live camera** / **Choose room photo** instead, where you tap to position the design and adjust its size by eye. In mobile Chrome, WebXR uses the same outline: tap to place, tap again to pick it up.
 4. Name the project, optionally enter a salesperson's estimate including its currency, and save. Reopen the design from **Projects** or share its specification. Project records stay in local app storage.
 
 ## Model and material sources
+
+`src/designs.ts` builds the feature walls, TV units, archways and designer wardrobes. Arches, discs, waves and glow frames are outlined shapes: three.js extrudes them, ViroReact draws them as polygons and the editor preview clips the laminate to them. Their catalog images are rendered from the same parts with `node --experimental-strip-types scripts/render-products.ts [product-key ...]`, which needs Playwright with Chromium.
 
 `src/model.ts` defines the wardrobe as boards, shelves, rails, doors and pulls. Configuration dimensions use millimetres and geometry uses metres, with the origin at floor level. Both the preview and the native AR renderer consume those parts. The catalog cover is a separate rendered view of the default configuration.
 

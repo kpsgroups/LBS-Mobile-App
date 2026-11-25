@@ -2,11 +2,12 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { Linking, Modal, NativeModules, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera } from "expo-camera";
-import { furnitureParts, furnitureName, type Design, type Triple } from "./model";
+import { furnitureParts, furnitureName, laminateSurfaces, type Design, type Surface, type Triple } from "./model";
 import { finishById } from "./materials";
 import { Button, Icon, T, color, s, type IconName } from "./ui";
 import { checkRoomTracking } from "./arSupport";
 import { patchViroAssetRegistry } from "./viroCompat";
+import { fixedSurfaces, isLaminate, laminateFor } from "./surfaces";
 import {
   footprintOutline,
   formatSize,
@@ -54,7 +55,7 @@ const LOST_AFTER = 600; // Keep the preview briefly when one frame misses the fl
 
 function Scene() {
   const { engine, design, open, yaw, setYaw, placed, position, found, tracked } = useContext(Context)!;
-  const { ViroARScene, ViroAmbientLight, ViroDirectionalLight, ViroSpotLight, ViroNode, ViroBox, ViroQuad } = engine;
+  const { ViroARScene, ViroAmbientLight, ViroDirectionalLight, ViroSpotLight, ViroNode, ViroBox, ViroQuad, ViroPolygon } = engine;
   const [light, setLight] = useState({ intensity: 550, color: "#ffffff" });
   const [preview, setPreview] = useState<Pose | null>(null);
   const last = useRef<{ pose: Pose | null; at: number; seen: number }>({ pose: null, at: 0, seen: 0 });
@@ -62,7 +63,7 @@ function Scene() {
   const parts = useMemo(() => furnitureParts(design, open), [design, open]);
   const outline = useMemo(() => footprintOutline(design), [design.width, design.depth]);
   const w = design.width / 1000, h = design.height / 1000, d = design.depth / 1000;
-  const finish = "mrk" + design.finish;
+  const material = (surface: Surface) => (isLaminate(surface) ? "mrk" + laminateFor(design, surface) : "lbs-" + surface);
 
   const pose = placed && position.current ? { position: position.current, yaw } : preview;
   return (
@@ -154,18 +155,31 @@ function Scene() {
               />
             </>
           )}
-          {parts.map((part) => (
+          {parts.map((part) =>
+            part.outline ? (
+              // Curved parts (arches, discs, waves) are flat polygons on their front face.
+              <ViroPolygon
+                key={part.id}
+                vertices={part.outline}
+                holes={[]}
+                position={[part.center[0], part.center[1], part.center[2] + part.size[2] / 2]}
+                materials={[material(part.surface)]}
+                lightReceivingBitMask={1 | SHADOW}
+                shadowCastingBitMask={placed && part.surface !== "glow" ? SHADOW : 0}
+              />
+            ) : (
             <ViroBox
               key={part.id}
               width={part.size[0]}
               height={part.size[1]}
               length={part.size[2]}
               position={part.center}
-              materials={[part.surface === "finish" ? finish : part.surface]}
+              materials={[material(part.surface)]}
               lightReceivingBitMask={1 | SHADOW}
-              shadowCastingBitMask={placed ? SHADOW : 0}
+              shadowCastingBitMask={placed && part.surface !== "glow" ? SHADOW : 0}
             />
-          ))}
+            ),
+          )}
         </ViroNode>
       )}
     </ViroARScene>
@@ -242,14 +256,20 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
           step = "AR renderer";
           patchViroAssetRegistry();
           const viro: Engine = require("@reactvision/react-viro");
+          const laminates = Object.fromEntries(laminateSurfaces.map((surface) => {
+            const id = laminateFor(design, surface);
+            return ["mrk" + id, { diffuseTexture: finishById(id).image, lightingModel: "Lambert" }];
+          }));
           viro.ViroMaterials.createMaterials({
-            ["mrk" + design.finish]: {
-              diffuseTexture: finishById(design.finish).image,
-              lightingModel: "Lambert",
-            },
-            interior: { diffuseColor: "#cfb596", lightingModel: "Lambert" },
-            hardware: { diffuseColor: "#554538", lightingModel: "Lambert" },
-            plinth: { diffuseColor: "#574a3f", lightingModel: "Lambert" },
+            ...laminates,
+            "lbs-interior": { diffuseColor: fixedSurfaces.interior, lightingModel: "Lambert" },
+            "lbs-hardware": { diffuseColor: fixedSurfaces.hardware, lightingModel: "Lambert" },
+            "lbs-plinth": { diffuseColor: fixedSurfaces.plinth, lightingModel: "Lambert" },
+            // LED strips ignore scene lighting so they read as light sources.
+            "lbs-glow": { diffuseColor: fixedSurfaces.glow, lightingModel: "Constant" },
+            "lbs-mirror": { diffuseColor: fixedSurfaces.mirror, shininess: 60, lightingModel: "Blinn" },
+            "lbs-trim": { diffuseColor: fixedSurfaces.trim, shininess: 24, lightingModel: "Blinn" },
+            "lbs-screen": { diffuseColor: fixedSurfaces.screen, shininess: 48, lightingModel: "Blinn" },
             lbsOutline: { diffuseColor: "#ffffff", lightingModel: "Constant" },
             lbsFootprint: { diffuseColor: "#ffffff38", lightingModel: "Constant", writesToDepthBuffer: false },
           });
@@ -269,7 +289,7 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
     return () => {
       alive = false;
     };
-  }, [design.finish, attempt]);
+  }, [design.finish, design.accent, design.detail, attempt]);
 
   // Watch for an AR session that opens but never starts tracking, e.g. when
   // Google Play Services for AR is missing, outdated or still installing.

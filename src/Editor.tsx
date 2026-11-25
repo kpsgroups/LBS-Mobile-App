@@ -7,7 +7,8 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { finishById } from "./materials";
-import { designLimits, furnitureName, type Design } from "./model";
+import { designLimits, furnitureName, furnitureParts, laminateSurfaces, sectionLabel, type Design, type LaminateSurface } from "./model";
+import { laminateFor } from "./surfaces";
 import { Preview } from "./Preview";
 import { Button, Chips, Icon, Label, T, Title, color, s } from "./ui";
 
@@ -18,7 +19,7 @@ interface Props {
   setName: (v: string) => void;
   estimate: string;
   setEstimate: (v: string) => void;
-  materials: () => void;
+  materials: (slot: LaminateSurface) => void;
   room: () => void;
   save: () => void;
   busy: boolean;
@@ -29,7 +30,10 @@ export function Editor(p: Props) {
   const [view, setView] = useState("Exterior"),
     [angle, setAngle] = useState(24);
   const wide = useWindowDimensions().width >= 800;
-  const f = finishById(p.design.finish);
+  const sections = sectionLabel(p.design);
+  const used = new Set(furnitureParts(p.design).map((part) => part.surface));
+  const slots = laminateSurfaces.filter((slot) => slot === "finish" || used.has(slot));
+  const slotLabel = { finish: slots.length > 1 ? "MAIN LAMINATE" : "LAMINATE FINISH", accent: "FEATURE PANEL", detail: "DETAIL FINISH" };
   return (
     <View style={{ gap: 20 }}>
       <View>
@@ -126,10 +130,10 @@ export function Editor(p: Props) {
             })}
           </View>
           <View style={s.line} />
-          {!["bed", "dining", "desk", "vanity", "media"].includes(p.design.kind ?? "wardrobe") && <View style={s.section}>
+          {sections && <View style={s.section}>
             <T style={s.h3}>Sections</T>
             <Chips
-              label="Door count"
+              label={sections}
               values={[2, 3, 4]}
               selected={p.design.bays}
               select={(bays) => p.change({ ...p.design, bays })}
@@ -144,24 +148,27 @@ export function Editor(p: Props) {
               }}
             />
           </>}</View>}
-          <Pressable
-            onPress={p.materials}
-            accessibilityRole="button"
-            accessibilityLabel="Change laminate finish"
-            style={[s.between, s.block, { flexDirection: "row" }]}
-          >
-            <Image
-              source={f.image}
-              style={{ height: 50, width: 50, borderRadius: 4 }}
-            />
-            <View style={{ flex: 1, gap: 3 }}>
-              <Label>LAMINATE FINISH</Label>
-              <T>
-                {f.name} · MRK-{f.id}
-              </T>
-            </View>
-            <Icon name="arrow" />
-          </Pressable>
+          {slots.map((slot) => {
+            const f = finishById(laminateFor(p.design, slot));
+            return (
+              <Pressable
+                key={slot}
+                onPress={() => p.materials(slot)}
+                accessibilityRole="button"
+                accessibilityLabel={"Change " + slotLabel[slot].toLowerCase()}
+                style={[s.between, s.block, { flexDirection: "row" }]}
+              >
+                <Image source={f.image} style={{ height: 50, width: 50, borderRadius: 4 }} />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Label>{slotLabel[slot]}</Label>
+                  <T>
+                    {f.name} · MRK-{f.id}
+                  </T>
+                </View>
+                <Icon name="arrow" />
+              </Pressable>
+            );
+          })}
         </View>
       </View>
       <View style={s.line} />

@@ -1,8 +1,10 @@
 import React from "react";
 import { View } from "react-native";
-import Svg, { Ellipse, G, Image as Texture, Polygon } from "react-native-svg";
+import Svg, { ClipPath, Defs, Ellipse, G, Image as Texture, Polygon } from "react-native-svg";
 import { furnitureParts, furnitureName, type Design, type Part, type Triple } from "./model";
 import { finishById } from "./materials";
+import { fixedSurfaces, isLaminate, laminateFor } from "./surfaces";
+import { builders } from "./designs";
 
 // Orthographic projection of the same metre-scale boxes used in AR.
 // Map the scan onto the front plane so grain follows each door as it turns.
@@ -41,7 +43,11 @@ export function Preview({
   }
   const finish = finishById(design.finish);
   const parts = furnitureParts(design, open);
+  // Feature walls and designer wardrobes are layered outwards from the wall, so
+  // their parts are painted by how far their front face stands off the wall.
+  const layered = !!design.kind && design.kind in builders;
   function layer(p: Part) {
+    if (layered) return (p.center[2] + p.size[2] / 2) * 100 + (p.center[0] * side + p.center[1] * tilt) * 0.01;
     if (p.id === "back") return -100;
     if (p.id === "top") return 80;
     if (p.id.startsWith("door")) return 90;
@@ -101,12 +107,40 @@ export function Preview({
               [left, bottom, front],
             ],
           ];
-          const base = {
-            finish: finish.color,
-            interior: "#cfb596",
-            hardware: "#554538",
-            plinth: "#574a3f",
-          }[p.surface];
+          const laminate = isLaminate(p.surface) ? finishById(laminateFor(design, p.surface)) : null;
+          // Texturing every slat would add hundreds of images; thin parts use the laminate's colour.
+          const textured = !!laminate && p.size[0] >= 0.08 && p.size[1] >= 0.08;
+          const base = laminate ? laminate.color : fixedSurfaces[p.surface as keyof typeof fixedSurfaces];
+          if (p.outline) {
+            // Curved part: draw its front outline, textured within the shape.
+            const pts = p.outline.map(([ox, oy]) => project([x + ox, y + oy, front]));
+            const points = pts.map((v) => v.join(",")).join(" ");
+            const [a, b, , e] = [[left, top, front], [right, top, front], [right, bottom, front], [left, bottom, front]].map((v) => project(v as Triple));
+            const clip = "clip-" + p.id.replace(/[^a-z0-9]/gi, "-");
+            return (
+              <G key={p.id}>
+                <Polygon points={points} fill={base} />
+                {laminate && textured && (
+                  <>
+                    <Defs>
+                      <ClipPath id={clip}>
+                        <Polygon points={points} />
+                      </ClipPath>
+                    </Defs>
+                    <G clipPath={`url(#${clip})`}>
+                      <Texture
+                        href={laminate.image}
+                        width={1}
+                        height={1}
+                        preserveAspectRatio="none"
+                        transform={`matrix(${b[0] - a[0]} ${b[1] - a[1]} ${e[0] - a[0]} ${e[1] - a[1]} ${a[0]} ${a[1]})`}
+                      />
+                    </G>
+                  </>
+                )}
+              </G>
+            );
+          }
           return (
             <G key={p.id}>
               {faces.map((face, index) => {
@@ -115,29 +149,29 @@ export function Preview({
                 return (
                   <G key={index}>
                     <Polygon points={points} fill={base} />
-                    {index === 2 && p.surface === "finish" && (
+                    {index === 2 && laminate && textured && (
                       <Texture
-                        href={finish.image}
+                        href={laminate.image}
                         width={1}
                         height={1}
                         preserveAspectRatio="none"
                         transform={`matrix(${b[0] - a[0]} ${b[1] - a[1]} ${e[0] - a[0]} ${e[1] - a[1]} ${a[0]} ${a[1]})`}
                       />
                     )}
-                    {index < 2 && (
+                    {index < 2 && p.surface !== "glow" && (
                       <Polygon
                         points={points}
                         fill={index === 0 ? "#282821" : "#ffffff"}
                         opacity={index === 0 ? 0.2 : 0.13}
                       />
                     )}
-                    <Polygon
+                    {p.surface !== "glow" && <Polygon
                       points={points}
                       stroke="#493c30"
                       strokeOpacity={0.35}
                       strokeWidth={0.4}
                       fill="none"
-                    />
+                    />}
                   </G>
                 );
               })}

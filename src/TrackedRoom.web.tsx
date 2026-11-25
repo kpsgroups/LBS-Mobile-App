@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Asset } from "expo-asset";
 import { View } from "react-native";
-import { furnitureParts, type Design } from "./model";
+import { furnitureParts, type Design, type LaminateSurface, type Surface } from "./model";
+import { fixedSurfaces, laminateFor } from "./surfaces";
+import { partGeometry } from "./partGeometry";
 import { finishById } from "./materials";
 import { Button, T, s } from "./ui";
 import { footprintOutline, formatSize, yawToward } from "./arPlacement";
@@ -57,19 +59,30 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
       const scene = new three.Scene(), camera = new three.PerspectiveCamera(), model = new three.Group(), reticle = new three.Group();
       let source: XRHitTestSource | undefined, anchor: XRAnchor | undefined, ended = false;
       const disposables: { dispose: () => void }[] = [];
-      const finish = finishById(design.finish);
-      const texture = new three.TextureLoader().load(Asset.fromModule(finish.image).uri);
-      texture.colorSpace = three.SRGBColorSpace;
-      const materials = {
-        finish: new three.MeshStandardMaterial({ map: texture, roughness: 0.57 }),
-        interior: new three.MeshStandardMaterial({ color: 0xcfb596 }),
+      const textures: { dispose: () => void }[] = [];
+      function laminate(surface: LaminateSurface) {
+        const texture = new three.TextureLoader().load(Asset.fromModule(finishById(laminateFor(design, surface)).image).uri);
+        texture.colorSpace = three.SRGBColorSpace;
+        textures.push(texture);
+        return new three.MeshStandardMaterial({ map: texture, roughness: 0.57 });
+      }
+      const color = (surface: keyof typeof fixedSurfaces) => new three.Color(fixedSurfaces[surface]);
+      const materials: Record<Surface, InstanceType<typeof three.Material>> = {
+        finish: laminate("finish"),
+        accent: laminate("accent"),
+        detail: laminate("detail"),
+        interior: new three.MeshStandardMaterial({ color: color("interior") }),
         hardware: new three.MeshStandardMaterial({ color: 0x756b62, metalness: 0.4 }),
-        plinth: new three.MeshStandardMaterial({ color: 0x54473b }),
+        plinth: new three.MeshStandardMaterial({ color: color("plinth") }),
+        glow: new three.MeshBasicMaterial({ color: color("glow") }),
+        mirror: new three.MeshStandardMaterial({ color: color("mirror"), metalness: 0.45, roughness: 0.15 }),
+        trim: new three.MeshStandardMaterial({ color: color("trim"), metalness: 0.85, roughness: 0.3 }),
+        screen: new three.MeshStandardMaterial({ color: color("screen"), roughness: 0.15 }),
       };
       const outlineMaterial = new three.MeshBasicMaterial({ color: 0xffffff });
       const fillMaterial = new three.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false });
       const shadowMaterial = new three.ShadowMaterial({ opacity: 0.32 });
-      disposables.push(texture, ...Object.values(materials), outlineMaterial, fillMaterial, shadowMaterial);
+      disposables.push(...textures, ...Object.values(materials), outlineMaterial, fillMaterial, shadowMaterial);
       function box(size: [number, number, number], material: InstanceType<typeof three.Material>) {
         const geometry = new three.BoxGeometry(...size);
         disposables.push(geometry);
@@ -81,8 +94,10 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
         if (mounted.current) setBusy(false);
       }, { once: true });
       for (const part of furnitureParts(design)) {
-        const mesh = box(part.size, materials[part.surface]);
-        mesh.position.set(...part.center); mesh.castShadow = true; model.add(mesh);
+        const geometry = partGeometry(three, part);
+        disposables.push(geometry);
+        const mesh = new three.Mesh(geometry, materials[part.surface]);
+        mesh.position.set(...part.center); mesh.castShadow = part.surface !== "glow"; model.add(mesh);
       }
       const w = design.width / 1000, d = design.depth / 1000, h = design.height / 1000;
       const floor = new three.PlaneGeometry(w + 1.2, d + 1.2);
