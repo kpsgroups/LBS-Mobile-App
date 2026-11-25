@@ -1,5 +1,5 @@
-name: Release signed Android preview
-# Builds the APK, signs it with the LBS preview key held in Actions secrets and
+name: Release signed Android build
+# Builds the APK, signs it with the LBS release key held in Actions secrets and
 # publishes a GitHub pre-release tagged from the version in app.json.
 # Push a branch named release/android-v<version> (for example release/android-v0.1.6) to run it.
 on:
@@ -15,9 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      # Certificate that signed v0.1.1–v0.1.5. Updates only install over those builds
-      # when the same key signs them, so the job stops if any other key is supplied.
-      EXPECTED_CERT_SHA256: c837577a960736232c9ee91dfe6a625712b094f01aeea9e775d597cb5eaea503
+      # LBS release certificate, used from v0.1.6 on. Android only installs an update
+      # signed by the same key, so the job stops if any other key is supplied.
+      # (v0.1.1–v0.1.5 used a preview key that is no longer available.)
+      EXPECTED_CERT_SHA256: 326faea61571d3daf698f8f715e90a6b4fc4f23d2b48a33699be497ddd6c9d3e
     steps:
       - uses: actions/checkout@v4
       - name: Check the branch matches the app version
@@ -57,7 +58,7 @@ jobs:
         env:
           NODE_ENV: production
         run: ./gradlew :app:assembleRelease --init-script ../.github/gradle/central-mirror.gradle -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --max-workers=2
-      - name: Sign with the LBS preview key and verify the certificate
+      - name: Sign with the LBS release key and verify the certificate
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -66,7 +67,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          keystore="$RUNNER_TEMP/lbs-preview.keystore"
+          keystore="$RUNNER_TEMP/lbs-release.keystore"
           echo "$KEYSTORE" | base64 -d > "$keystore"
           out="$RUNNER_TEMP/LBS-Interior-Studio-$VERSION.apk"
           export KEY_PASSWORD="${KEY_PASSWORD:-$STORE_PASSWORD}"
@@ -78,7 +79,7 @@ jobs:
           "$tools/apksigner" verify --print-certs "$out" | tee "$RUNNER_TEMP/certs.txt"
           actual=$(grep -m1 'certificate SHA-256 digest' "$RUNNER_TEMP/certs.txt" | awk '{print $NF}')
           if [ "$actual" != "$EXPECTED_CERT_SHA256" ]; then
-            echo "::error::Signed with certificate $actual, expected $EXPECTED_CERT_SHA256 (the key that signed earlier releases)"; exit 1
+            echo "::error::Signed with certificate $actual, expected $EXPECTED_CERT_SHA256 (the LBS release key)"; exit 1
           fi
           sha256sum "$out"
           echo "APK=$out" >> "$GITHUB_ENV"

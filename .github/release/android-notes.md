@@ -1,4 +1,4 @@
-Install over your installed LBS app to keep your saved designs.
+**Uninstall v0.1.5 or earlier before installing this version.** From 0.1.6 the app is signed with a new LBS release key, so Android cannot install it over older builds. Uninstalling deletes projects saved on the phone: share each project's specification first if you need to keep it. Later versions will install over 0.1.6 and keep your saved designs.
 
 **View in room now opens full-screen AR** on phones with Google Play Services for AR:
 
