@@ -6,8 +6,6 @@ import { finishById } from "./materials";
 import { Button, T, s } from "./ui";
 import { footprintOutline, formatSize, yawToward } from "./arPlacement";
 
-import MarkerRoom from "./MarkerRoom";
-
 // On-screen hint and exit button shown over the camera when the browser supports DOM overlay.
 function overlay() {
   const root = document.createElement("div");
@@ -24,7 +22,6 @@ function overlay() {
 }
 
 export default function TrackedRoom({ design, close }: { design: Design; close: () => void }) {
-  const [marker, setMarker] = useState(false);
   const session = useRef<XRSession | null>(null);
   const mounted = useRef(true);
   const [supported, setSupported] = useState(false);
@@ -35,7 +32,7 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
     Promise.resolve(navigator.xr?.isSessionSupported("immersive-ar")).catch(() => false).then((ok) => {
       if (mounted.current) {
         setSupported(!!ok);
-        setMessage(ok ? "Aim at the floor, check the outline of the real footprint, then tap to place. Tap again to move it." : "Automatic floor tracking is unavailable here. Use a printed floor marker for a live 3D view.");
+        setMessage(ok ? "Aim at the floor, check the outline of the real footprint, then tap to place. Tap again to move it." : "This browser cannot run AR. Install the LBS Android app on an AR-capable phone for full-size AR, or use Chrome on Android.");
       }
     });
     return () => { mounted.current = false; void session.current?.end().catch(() => {}); };
@@ -166,9 +163,7 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
       if (mounted.current) { setBusy(false); setMessage("Live AR could not start. Check camera permission, retry, or use a room photo."); }
     }
   }
-  if (marker) return <MarkerRoom design={design} close={close} />;
   return <View style={s.section}><T style={s.h2}>Walk around in 3D</T><T style={s.sub}>{message}</T>
     {supported && <Button disabled={busy} onPress={start}>Start live AR</Button>}
-    <Button secondary onPress={() => setMarker(true)}>Track a printed floor marker</Button>
     <Button secondary onPress={close}>Use camera &amp; photo placement</Button></View>;
 }
