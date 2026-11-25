@@ -6,6 +6,7 @@ import { furnitureParts, furnitureName, type Design, type Triple } from "./model
 import { finishById } from "./materials";
 import { Button, Icon, T, color, s, type IconName } from "./ui";
 import { checkRoomTracking } from "./arSupport";
+import { patchViroAssetRegistry } from "./viroCompat";
 import {
   footprintOutline,
   formatSize,
@@ -239,6 +240,7 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
           setSettings(!permission.canAskAgain);
         } else {
           step = "AR renderer";
+          patchViroAssetRegistry();
           const viro: Engine = require("@reactvision/react-viro");
           viro.ViroMaterials.createMaterials({
             ["mrk" + design.finish]: {
