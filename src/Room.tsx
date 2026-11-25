@@ -24,16 +24,24 @@ type Background =
   | { type: "camera" }
   | { type: "photo"; uri: string };
 export default function Room({
-  design,
+  design: initial,
   projectName,
   close,
   backLabel,
+  change,
 }: {
   design: Design;
   projectName: string;
   close: () => void;
   backLabel: string;
+  // Receives colour and size changes made in AR (the editor's design only).
+  change?: (d: Design) => void;
 }) {
+  const [design, setDesign] = useState(initial);
+  function edit(next: Design) {
+    setDesign(next);
+    change?.(next);
+  }
   const [background, setBackground] = useState<Background>({ type: "studio" });
   const [tracked, setTracked] = useState(true),
     [view, setView] = useState("Exterior");
@@ -155,7 +163,7 @@ export default function Room({
     Math.min(frame.height - height, point.y * frame.height - height / 2),
   );
   if (tracked)
-    return <TrackedRoom design={design} close={() => { setTracked(false); void startCamera(); }} />;
+    return <TrackedRoom design={design} change={edit} close={() => { setTracked(false); void startCamera(); }} />;
   return (
     <View style={s.section}>
       <Label>CUSTOMER PREVIEW</Label>

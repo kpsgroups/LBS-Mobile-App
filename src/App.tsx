@@ -329,6 +329,7 @@ function StudioApp() {
                 roomFrom === "Specification" && selected ? selected.name : name
               }
               close={() => setPage(roomFrom)}
+              change={roomFrom === "Editor" ? setDesign : undefined}
               backLabel={
                 roomFrom === "Specification"
                   ? "Back to project"
