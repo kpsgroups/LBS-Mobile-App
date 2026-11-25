@@ -12,7 +12,7 @@ For Android, connect an Android phone, configure the Android SDK and run `npm ru
 
 1. Open **Studio wardrobe**. Change width, height, depth, door count or compartment layout. Switch between exterior and interior views.
 2. Choose a laminate by sample or MRK code. The selected sample follows the design into the preview, room placement and saved specification.
-3. Open **View in room** from the editor or a saved project. Select **Live camera** or **Choose room photo**, tap to position the wardrobe and adjust its size and angle for a visual estimate. **Freeze view** holds the camera background. For measured placement, select **Full-size AR** on a supported phone with ARKit or Google Play Services for AR, scan the floor and tap a detected plane.
+3. Open **View in room** from the editor or a saved project. On a phone with ARKit or Google Play Services for AR, full-size AR opens full screen. A translucent model and a white outline of its real footprint follow the floor under the screen centre, facing the customer. Tap **Place here**, then drag to move it along the floor, use two fingers or **Turn 15°** to rotate, **Open doors** to see the interior and **Move** to place it again without restarting tracking. The on-screen hint explains limited tracking (moving too fast, low light). Phones without AR fall back to the printed floor marker or to **Live camera** / **Choose room photo**, where you tap to position the design and adjust its size by eye. In mobile Chrome, WebXR uses the same outline: tap to place, tap again to pick it up.
 4. Name the project, optionally enter a salesperson's estimate including its currency, and save. Reopen the design from **Projects** or share its specification. Project records stay in local app storage.
 
 ## Model and material sources
@@ -23,6 +23,6 @@ The 18 sample images are crops from the supplied Meraki PVC laminates PDF, pages
 
 ## Verification and remaining work
 
-Run `npm test` for physical bounds and compartment tests, `npm run check` for TypeScript, and `npx expo export --platform all` to bundle iOS, Android and web.
+Run `npm test` for physical bounds, compartment and AR placement tests, `npm run check` for TypeScript, and `npx expo export --platform all` to bundle iOS, Android and web.
 
 Before field use, verify detection, permission handling, placement scale and rotation on physical ARKit and ARCore devices against a measured reference. Account login, centralized project storage, customer approval, saved room composites, automated quotations and order administration remain future milestones.

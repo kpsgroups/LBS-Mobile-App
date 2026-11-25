@@ -1,98 +1,202 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { View, NativeModules, Platform, useWindowDimensions } from "react-native";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Linking, Modal, NativeModules, Platform, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera } from "expo-camera";
-import { furnitureParts, furnitureName, type Design } from "./model";
+import { furnitureParts, furnitureName, type Design, type Triple } from "./model";
 import { finishById } from "./materials";
-import { Button, T, s } from "./ui";
-import { lockRoomAnchor, type RoomAnchor } from "./roomAnchor";
+import { Button, Icon, T, color, s, type IconName } from "./ui";
 import { checkRoomTracking } from "./arSupport";
+import {
+  footprintOutline,
+  formatSize,
+  normalizeYaw,
+  pickFloorHit,
+  poseChanged,
+  trackingHint,
+  yawToward,
+} from "./arPlacement";
 
 import MarkerRoom from "./MarkerRoom";
 
 type Engine = typeof import("@reactvision/react-viro");
+type Pose = { position: Triple; yaw: number };
 interface Session {
   engine: Engine;
   design: Design;
-  rotation: number;
-  placed: (value: boolean) => void;
-  tracked: (state: number) => void;
+  open: boolean;
+  yaw: number;
+  setYaw: (yaw: number) => void;
+  placed: boolean;
+  // The dragged position lives in a ref: ViroReact moves the node natively, and
+  // re-rendering from React state on every drag event would fight that motion.
+  position: React.MutableRefObject<Triple | null>;
+  found: (pose: Pose | null) => void;
+  tracked: (state: number, reason: number) => void;
 }
 const Context = createContext<Session | null>(null);
 
+// Lights and the shadow receiver only affect objects that share their bit mask.
+const SHADOW = 2;
+const HIT_TEST_INTERVAL = 66; // ~15 Hz is smooth for the preview and far cheaper than every frame.
+const LOST_AFTER = 600; // Keep the preview briefly when one frame misses the floor.
+
 function Scene() {
-  const { engine, design, rotation, placed, tracked } = useContext(Context)!;
-  const {
-    ViroARScene,
-    ViroAmbientLight,
-    ViroDirectionalLight,
-    ViroARPlane,
-    ViroNode,
-    ViroBox,
-  } = engine;
-  const [anchor, setAnchor] = useState<RoomAnchor | null>(null);
-  const [light, setLight] = useState(550);
+  const { engine, design, open, yaw, setYaw, placed, position, found, tracked } = useContext(Context)!;
+  const { ViroARScene, ViroAmbientLight, ViroDirectionalLight, ViroSpotLight, ViroNode, ViroBox, ViroQuad } = engine;
+  const [light, setLight] = useState({ intensity: 550, color: "#ffffff" });
+  const [preview, setPreview] = useState<Pose | null>(null);
+  const last = useRef<{ pose: Pose | null; at: number; seen: number }>({ pose: null, at: 0, seen: 0 });
+  const rotateFrom = useRef(0);
+  const parts = useMemo(() => furnitureParts(design, open), [design, open]);
+  const outline = useMemo(() => footprintOutline(design), [design.width, design.depth]);
+  const w = design.width / 1000, h = design.height / 1000, d = design.depth / 1000;
+  const finish = "mrk" + design.finish;
+
+  const pose = placed && position.current ? { position: position.current, yaw } : preview;
   return (
     <ViroARScene
-      onAmbientLightUpdate={({ intensity }) => { if (Number.isFinite(intensity)) setLight(Math.max(200, Math.min(1200, Math.round(intensity / 100) * 100))); }}
-      onTrackingUpdated={tracked}
       anchorDetectionTypes={["PlanesHorizontal"]}
-    >
-      <ViroAmbientLight color="#ffffff" intensity={light} />
-      <ViroDirectionalLight
-        color="#fff7e9"
-        direction={[-0.4, -1, -0.5]}
-        intensity={650}
-      />
-      {!anchor && <ViroARPlane
-        alignment="HorizontalUpward"
-        minWidth={design.width / 1000}
-        minHeight={design.depth / 1000}
-        onAnchorFound={plane => {
-          const pose = lockRoomAnchor(null, plane as unknown as Partial<RoomAnchor>);
-          if (pose) {
-            setAnchor(first => first ?? pose);
-            placed(true);
+      onTrackingUpdated={tracked}
+      onAmbientLightUpdate={({ intensity, color }) => {
+        if (!Number.isFinite(intensity)) return;
+        const next = Math.max(200, Math.min(1200, Math.round(intensity / 100) * 100));
+        setLight((l) => (l.intensity === next && l.color === color ? l : { intensity: next, color: color || "#ffffff" }));
+      }}
+      // Hit testing stops once the furniture is placed, saving battery and bridge traffic.
+      onCameraARHitTest={placed ? undefined : (event) => {
+        const now = Date.now();
+        if (now - last.current.at < HIT_TEST_INTERVAL) return;
+        last.current.at = now;
+        const camera = event.cameraOrientation.position as Triple;
+        const hit = pickFloorHit(event.hitTestResults, camera[1]);
+        if (!hit) {
+          if (last.current.pose && now - last.current.seen > LOST_AFTER) {
+            last.current.pose = null;
+            setPreview(null);
+            found(null);
           }
-        }}
-      />}
-      {anchor && <ViroNode position={anchor.position} rotation={anchor.rotation}>
-        <ViroNode position={anchor.center} rotation={[0, rotation, 0]}>
-          {furnitureParts(design).map((part) => (
+          return;
+        }
+        last.current.seen = now;
+        const next = { position: hit.position, yaw: yawToward(hit.position, camera) };
+        if (poseChanged(last.current.pose, next)) {
+          last.current.pose = next;
+          setPreview(next);
+          found(next);
+        }
+      }}
+    >
+      <ViroAmbientLight color={light.color} intensity={light.intensity} />
+      <ViroDirectionalLight color="#fff7e9" direction={[-0.4, -1, -0.5]} intensity={650} />
+      {pose && (
+        <ViroNode
+          key={placed ? "placed" : "preview"}
+          position={pose.position}
+          rotation={[0, pose.yaw, 0]}
+          opacity={placed ? 1 : 0.62}
+          {...(placed
+            ? {
+                dragType: "FixedToPlane" as const,
+                dragPlane: { planePoint: pose.position, planeNormal: [0, 1, 0] as Triple, maxDistance: 8 },
+                onDrag: (to: Triple) => {
+                  if (to.every(Number.isFinite)) position.current = [to[0], pose.position[1], to[2]];
+                },
+                onRotate: (state: number, factor: number) => {
+                  if (state === 1) rotateFrom.current = yaw;
+                  else setYaw(normalizeYaw(Math.round(rotateFrom.current - factor)));
+                },
+              }
+            : {})}
+        >
+          {!placed && outline.map((edge, i) => (
+            <ViroBox key={"edge" + i} width={edge.size[0]} height={edge.size[1]} length={edge.size[2]} position={edge.center} materials={["lbsOutline"]} />
+          ))}
+          {!placed && (
+            <ViroQuad rotation={[-90, 0, 0]} position={[0, 0.002, 0]} width={w} height={d} materials={["lbsFootprint"]} />
+          )}
+          {placed && (
+            <>
+              <ViroSpotLight
+                position={[0, h + 1.6, 0.4]}
+                direction={[0, -1, -0.12]}
+                color="#ffffff"
+                intensity={220}
+                innerAngle={20}
+                outerAngle={55}
+                attenuationStartDistance={h + 2}
+                attenuationEndDistance={h + 6}
+                castsShadow
+                influenceBitMask={SHADOW}
+                shadowMapSize={1024}
+                shadowNearZ={0.3}
+                shadowFarZ={h + 3}
+                shadowOpacity={0.5}
+              />
+              <ViroQuad
+                rotation={[-90, 0, 0]}
+                position={[0, 0.001, 0]}
+                width={w + 1.2}
+                height={d + 1.2}
+                arShadowReceiver
+                lightReceivingBitMask={SHADOW}
+              />
+            </>
+          )}
+          {parts.map((part) => (
             <ViroBox
               key={part.id}
               width={part.size[0]}
               height={part.size[1]}
               length={part.size[2]}
               position={part.center}
-              materials={[
-                part.surface === "finish"
-                  ? "mrk" + design.finish
-                  : part.surface,
-              ]}
+              materials={[part.surface === "finish" ? finish : part.surface]}
+              lightReceivingBitMask={1 | SHADOW}
+              shadowCastingBitMask={placed ? SHADOW : 0}
             />
           ))}
         </ViroNode>
-      </ViroNode>}
+      )}
     </ViroARScene>
   );
 }
 const initialScene = { scene: Scene };
-export default function TrackedRoom({
-  design,
-  close,
-}: {
-  design: Design;
-  close: () => void;
-}) {
-  const { height } = useWindowDimensions();
+
+function Control({ icon, label, onPress, primary, disabled }: { icon?: IconName; label: string; onPress: () => void; primary?: boolean; disabled?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.control,
+        primary && styles.primary,
+        { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
+      ]}
+    >
+      {icon && <Icon name={icon} size={18} tint={primary ? color.white : color.ink} />}
+      <T style={{ fontFamily: "DMBold", fontSize: 14, color: primary ? color.white : color.ink }}>{label}</T>
+    </Pressable>
+  );
+}
+
+export default function TrackedRoom({ design, close }: { design: Design; close: () => void }) {
+  const insets = useSafeAreaInsets();
   const [engine, setEngine] = useState<Engine | null>(null),
     [message, setMessage] = useState("Checking room placement support…");
   const [marker, setMarker] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [tracking, setTracking] = useState(false);
-  const [rotation, setRotation] = useState(0),
+  const [tracking, setTracking] = useState({ normal: false, reason: 1 });
+  const [yaw, setYaw] = useState(0),
     [placed, setPlaced] = useState(false),
+    [found, setFound] = useState(false),
+    [open, setOpen] = useState(false),
     [session, setSession] = useState(0);
+  const candidate = useRef<Pose | null>(null);
+  const hasDoors = useMemo(() => furnitureParts(design, true).length !== furnitureParts(design).length, [design]);
+  const position = useRef<Triple | null>(null);
+
   useEffect(() => {
     let alive = true;
     async function start() {
@@ -106,26 +210,19 @@ export default function TrackedRoom({
           if (alive) setMarker(true);
           return;
         }
-        const { isARSupportedOnDevice } = require("@reactvision/react-viro/dist/components/Utilities/ViroUtils") as Pick<Engine,"isARSupportedOnDevice">;
-        const support = await checkRoomTracking(
-          isARSupportedOnDevice,
-          () => !alive,
-        );
+        const { isARSupportedOnDevice } = require("@reactvision/react-viro/dist/components/Utilities/ViroUtils") as Pick<Engine, "isARSupportedOnDevice">;
+        const support = await checkRoomTracking(isARSupportedOnDevice, () => !alive);
         if (!alive) return;
         if (support !== "ready") {
           setMarker(true);
-          setMessage(
-            support === "unsupported"
-              ? "This phone reports that full-size AR is unsupported. Use camera & photo placement, then freeze the room to suggest a clear area."
-              : "Room tracking could not start. On Android, check Google Play Services for AR and try again, or return to the camera preview.",
-          );
           return;
         }
         const permission = await Camera.requestCameraPermissionsAsync();
-        if (!permission.granted)
-          message =
-            "Allow camera access in device settings to place your furniture.";
-        else if (alive) {
+        if (!alive) return;
+        if (!permission.granted) {
+          message = "Allow camera access to see your furniture full size in the room.";
+          setSettings(!permission.canAskAgain);
+        } else {
           const viro: Engine = require("@reactvision/react-viro");
           viro.ViroMaterials.createMaterials({
             ["mrk" + design.finish]: {
@@ -135,87 +232,134 @@ export default function TrackedRoom({
             interior: { diffuseColor: "#cfb596", lightingModel: "Lambert" },
             hardware: { diffuseColor: "#554538", lightingModel: "Lambert" },
             plinth: { diffuseColor: "#574a3f", lightingModel: "Lambert" },
+            lbsOutline: { diffuseColor: "#ffffff", lightingModel: "Constant" },
+            lbsFootprint: { diffuseColor: "#ffffff38", lightingModel: "Constant", writesToDepthBuffer: false },
           });
           setEngine(viro);
         }
       } catch {
         if (alive) setMarker(true);
-        message =
-          "Floor tracking did not start. You can track the printed marker with your rear camera.";
+        message = "Floor tracking did not start. You can track the printed marker with your rear camera.";
       }
       if (alive && message) setMessage(message);
     }
     setEngine(null);
+    setSettings(false);
     setMessage("Checking room placement support…");
     void start();
     return () => {
       alive = false;
     };
   }, [design.finish, attempt]);
-  if (marker) return <MarkerRoom design={design} close={close}/>;
+
+  const context = useMemo<Session | null>(
+    () =>
+      engine && {
+        engine,
+        design,
+        open,
+        yaw,
+        setYaw,
+        placed,
+        position,
+        found: (pose) => {
+          candidate.current = pose;
+          setFound(!!pose);
+        },
+        tracked: (state, reason) =>
+          setTracking((t) => {
+            const normal = state === engine.ViroTrackingStateConstants.TRACKING_NORMAL;
+            return t.normal === normal && t.reason === reason ? t : { normal, reason };
+          }),
+      },
+    [engine, design, open, yaw, placed],
+  );
+
+  function place() {
+    const pose = candidate.current;
+    if (!pose) return;
+    position.current = pose.position;
+    setYaw(pose.yaw);
+    setPlaced(true);
+  }
+  function move() {
+    position.current = null;
+    candidate.current = null;
+    setFound(false);
+    setPlaced(false);
+  }
+  function restart() {
+    move();
+    setYaw(0);
+    setTracking({ normal: false, reason: 1 });
+    setSession((k) => k + 1);
+  }
+
+  if (marker) return <MarkerRoom design={design} close={close} />;
+  if (!engine || !context)
+    return (
+      <View style={s.section}>
+        <T style={s.h2}>Full-size AR</T>
+        <T style={s.sub}>{message}</T>
+        {settings ? (
+          <Button onPress={() => void Linking.openSettings().catch(() => {})}>Open settings</Button>
+        ) : (
+          <Button secondary onPress={() => setAttempt((n) => n + 1)}>Retry AR</Button>
+        )}
+        <Button secondary onPress={() => setMarker(true)}>Track a printed floor marker</Button>
+        <Button onPress={close} secondary>Use camera &amp; photo placement</Button>
+      </View>
+    );
+
+  // Full screen, outside the page ScrollView, so drag and rotate gestures reach
+  // the AR view and the camera fills the phone.
   return (
-    <View style={s.section}>
-      {engine ? (
-        <Context.Provider
-          value={{
-            engine,
-            design,
-            rotation,
-            placed: setPlaced,
-            tracked: (state) =>
-              setTracking(
-                state === engine.ViroTrackingStateConstants.TRACKING_NORMAL,
-              ),
-          }}
-        >
-          <View style={{ height: Math.min(650, height * 0.62), width: "100%" }} collapsable={false}>
-            <engine.ViroARSceneNavigator
-              key={session}
-              initialScene={initialScene}
-              autofocus
-            />
+    <Modal visible animationType="fade" presentationStyle="fullScreen" statusBarTranslucent onRequestClose={close}>
+      <View style={styles.screen}>
+        <Context.Provider value={context}>
+          <engine.ViroARSceneNavigator key={session} initialScene={initialScene} autofocus style={StyleSheet.absoluteFill} />
+        </Context.Provider>
+        <View pointerEvents="box-none" style={[styles.top, { paddingTop: insets.top + 10 }]}>
+          <View style={styles.badge}>
+            <T style={{ fontFamily: "DMBold", fontSize: 15 }} numberOfLines={1}>{furnitureName(design)}</T>
+            <T style={{ fontSize: 12, color: color.muted }}>{formatSize(design)} · actual size</T>
           </View>
-          <T>
-            {placed
-              ? tracking ? "Walk around the furniture to see its sides and back." : "Tracking paused. Aim back at the placement area to recover the view."
-              : !tracking
-                ? "Move the phone slowly in good light to start tracking."
-                : "Point at clear floor space wide enough for your design. Placement is automatic."}
-          </T>
-          {placed && (
-            <View style={s.row}>
-              <Button
-                secondary
-                onPress={() => setRotation((a) => (a + 15) % 360)}
-                icon="rotate"
-              >
-                Turn 15°
-              </Button>
-              <Button
-                secondary
-                onPress={() => {
-                  setPlaced(false);
-                  setRotation(0);
-                  setSession((k) => k + 1);
-                }}
-              >
-                Place again
-              </Button>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close AR" onPress={close} style={styles.round}>
+            <Icon name="close" size={20} />
+          </Pressable>
+        </View>
+        <View pointerEvents="box-none" style={[styles.bottom, { paddingBottom: insets.bottom + 14 }]}>
+          <View style={styles.hint}>
+            <T accessibilityLiveRegion="polite" style={{ color: color.white, fontSize: 14, textAlign: "center" }}>
+              {trackingHint(tracking.normal, tracking.reason, found, placed)}
+            </T>
+          </View>
+          {placed ? (
+            <View style={styles.controls}>
+              <Control icon="rotate" label="Turn 15°" onPress={() => setYaw((a) => normalizeYaw(a + 15))} />
+              {hasDoors && <Control label={open ? "Close doors" : "Open doors"} onPress={() => setOpen((o) => !o)} />}
+              <Control label="Move" onPress={move} />
+            </View>
+          ) : (
+            <View style={styles.controls}>
+              <Control primary icon="check" label="Place here" disabled={!found || !tracking.normal} onPress={place} />
+              <Control label="Restart" onPress={restart} />
             </View>
           )}
-        </Context.Provider>
-      ) : (
-        <>
-          <T style={s.sub}>{message}</T>
-          <Button secondary onPress={() => setAttempt((n) => n + 1)}>
-            Retry AR
-          </Button>
-        </>
-      )}
-      <Button secondary onPress={()=>setMarker(true)}>Track a printed floor marker</Button>
-      <Button onPress={close} secondary>
-        Use camera & photo placement
-      </Button>
-    </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#000" },
+  top: { position: "absolute", left: 0, right: 0, top: 0, paddingHorizontal: 14, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  badge: { flex: 1, backgroundColor: "#fffef9eb", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  round: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#fffef9eb", alignItems: "center", justifyContent: "center" },
+  bottom: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 14, gap: 10, alignItems: "center" },
+  hint: { backgroundColor: "#20231cd0", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, maxWidth: 480 },
+  controls: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
+  control: { minHeight: 48, borderRadius: 24, paddingHorizontal: 18, backgroundColor: "#fffef9f0", flexDirection: "row", alignItems: "center", gap: 8 },
+  primary: { backgroundColor: color.sage },
+});
