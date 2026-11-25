@@ -6,6 +6,7 @@ import { furnitureParts, furnitureName, type Design, type Triple } from "./model
 import { finishById } from "./materials";
 import { Button, Icon, T, color, s, type IconName } from "./ui";
 import { checkRoomTracking } from "./arSupport";
+import { patchViroAssetRegistry } from "./viroCompat";
 import {
   footprintOutline,
   formatSize,
@@ -16,7 +17,18 @@ import {
   yawToward,
 } from "./arPlacement";
 
-import MarkerRoom from "./MarkerRoom";
+// ViroReact installs or updates Google Play Services for AR itself when the AR
+// view opens. These links are the manual route if that prompt never appears.
+const arCoreStore = "market://details?id=com.google.ar.core";
+const arCoreWeb = "https://play.google.com/store/apps/details?id=com.google.ar.core";
+const arPhones = "https://developers.google.com/ar/devices";
+// ViroReact reports AR startup failures only to the device log, so treat a
+// session that never reports tracking within this time as failed to start.
+const STARTUP_TIMEOUT = 12000;
+
+function openArCoreStore() {
+  void Linking.openURL(arCoreStore).catch(() => Linking.openURL(arCoreWeb).catch(() => {}));
+}
 
 type Engine = typeof import("@reactvision/react-viro");
 type Pose = { position: Triple; yaw: number };
@@ -175,7 +187,7 @@ function Control({ icon, label, onPress, primary, disabled }: { icon?: IconName;
       ]}
     >
       {icon && <Icon name={icon} size={18} tint={primary ? color.white : color.ink} />}
-      <T style={{ fontFamily: "DMBold", fontSize: 14, color: primary ? color.white : color.ink }}>{label}</T>
+      <T style={{ fontFamily: "DMBold", fontSize: 14, color: primary ? color.white : color.ink, flexShrink: 1, textAlign: "center" }}>{label}</T>
     </Pressable>
   );
 }
@@ -183,9 +195,13 @@ function Control({ icon, label, onPress, primary, disabled }: { icon?: IconName;
 export default function TrackedRoom({ design, close }: { design: Design; close: () => void }) {
   const insets = useSafeAreaInsets();
   const [engine, setEngine] = useState<Engine | null>(null),
-    [message, setMessage] = useState("Checking room placement support…");
-  const [marker, setMarker] = useState(false);
+    [message, setMessage] = useState("Starting AR…");
   const [settings, setSettings] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
+  // Last ARCore / ARKit availability answer, shown when AR does not start.
+  const [detail, setDetail] = useState("");
+  const [started, setStarted] = useState(false),
+    [stalled, setStalled] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [tracking, setTracking] = useState({ normal: false, reason: 1 });
   const [yaw, setYaw] = useState(0),
@@ -201,28 +217,30 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
     let alive = true;
     async function start() {
       let message = "";
+      let step = "support check";
       try {
-        // Importing the renderer registers built-in materials immediately.
-        // Metro treats a missing native dependency during import as a fatal JS error.
-        const rendererPresent = typeof NativeModules.VRTMaterialManager?.setJSMaterials === "function";
         const probe = Platform.OS === "android" ? NativeModules.VRTARSceneNavigatorModule?.isARSupportedOnDevice : NativeModules.VRTARUtils?.isARSupported;
-        if (!rendererPresent || typeof probe !== "function") {
-          if (alive) setMarker(true);
-          return;
-        }
-        const { isARSupportedOnDevice } = require("@reactvision/react-viro/dist/components/Utilities/ViroUtils") as Pick<Engine, "isARSupportedOnDevice">;
-        const support = await checkRoomTracking(isARSupportedOnDevice, () => !alive);
-        if (!alive) return;
-        if (support !== "ready") {
-          setMarker(true);
-          return;
-        }
+        if (typeof probe === "function") {
+          const { isARSupportedOnDevice } = require("@reactvision/react-viro/dist/components/Utilities/ViroUtils") as Pick<Engine, "isARSupportedOnDevice">;
+          const support = await checkRoomTracking(isARSupportedOnDevice, () => !alive);
+          if (!alive) return;
+          setDetail(support.detail);
+          // Only a definite "unsupported" stops here. Anything uncertain still
+          // opens AR, which lets ViroReact prompt to install Google Play Services for AR.
+          if (support.status === "unsupported") {
+            setUnsupported(true);
+            return;
+          }
+        } else setDetail("AR support check unavailable");
+        step = "camera permission";
         const permission = await Camera.requestCameraPermissionsAsync();
         if (!alive) return;
         if (!permission.granted) {
           message = "Allow camera access to see your furniture full size in the room.";
           setSettings(!permission.canAskAgain);
         } else {
+          step = "AR renderer";
+          patchViroAssetRegistry();
           const viro: Engine = require("@reactvision/react-viro");
           viro.ViroMaterials.createMaterials({
             ["mrk" + design.finish]: {
@@ -237,20 +255,30 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
           });
           setEngine(viro);
         }
-      } catch {
-        if (alive) setMarker(true);
-        message = "Floor tracking did not start. You can track the printed marker with your rear camera.";
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        message = `AR could not start (${step}: ${reason}).`;
       }
       if (alive && message) setMessage(message);
     }
     setEngine(null);
     setSettings(false);
-    setMessage("Checking room placement support…");
+    setUnsupported(false);
+    setMessage("Starting AR…");
     void start();
     return () => {
       alive = false;
     };
   }, [design.finish, attempt]);
+
+  // Watch for an AR session that opens but never starts tracking, e.g. when
+  // Google Play Services for AR is missing, outdated or still installing.
+  useEffect(() => {
+    if (!engine || started) return;
+    setStalled(false);
+    const timer = setTimeout(() => setStalled(true), STARTUP_TIMEOUT);
+    return () => clearTimeout(timer);
+  }, [engine, started, session]);
 
   const context = useMemo<Session | null>(
     () =>
@@ -266,11 +294,14 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
           candidate.current = pose;
           setFound(!!pose);
         },
-        tracked: (state, reason) =>
+        tracked: (state, reason) => {
+          setStarted(true);
+          setStalled(false);
           setTracking((t) => {
             const normal = state === engine.ViroTrackingStateConstants.TRACKING_NORMAL;
             return t.normal === normal && t.reason === reason ? t : { normal, reason };
-          }),
+          });
+        },
       },
     [engine, design, open, yaw, placed],
   );
@@ -292,10 +323,23 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
     move();
     setYaw(0);
     setTracking({ normal: false, reason: 1 });
+    setStarted(false);
+    setStalled(false);
     setSession((k) => k + 1);
   }
 
-  if (marker) return <MarkerRoom design={design} close={close} />;
+  if (unsupported)
+    return (
+      <View style={s.section}>
+        <T style={s.h2}>Full-size AR</T>
+        <T style={s.sub}>
+          Google Play Services for AR reports that this phone cannot run AR, so full-size placement is not available on it. Android AR needs a phone on Google's supported list.
+        </T>
+        <Button secondary onPress={() => void Linking.openURL(arPhones).catch(() => {})}>See supported phones</Button>
+        <Button secondary onPress={() => setAttempt((n) => n + 1)}>Check again</Button>
+        <Button onPress={close}>Use camera &amp; photo placement</Button>
+      </View>
+    );
   if (!engine || !context)
     return (
       <View style={s.section}>
@@ -306,7 +350,9 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
         ) : (
           <Button secondary onPress={() => setAttempt((n) => n + 1)}>Retry AR</Button>
         )}
-        <Button secondary onPress={() => setMarker(true)}>Track a printed floor marker</Button>
+        {Platform.OS === "android" && (
+          <Button secondary onPress={openArCoreStore}>Install or update Google Play Services for AR</Button>
+        )}
         <Button onPress={close} secondary>Use camera &amp; photo placement</Button>
       </View>
     );
@@ -328,6 +374,20 @@ export default function TrackedRoom({ design, close }: { design: Design; close: 
             <Icon name="close" size={20} />
           </Pressable>
         </View>
+        {stalled && (
+          <View style={styles.stalled}>
+            <T style={{ fontFamily: "DMBold", fontSize: 17 }}>AR has not started</T>
+            <T style={{ color: color.muted, lineHeight: 21 }}>
+              {Platform.OS === "android"
+                ? "Full-size AR needs Google Play Services for AR. Install or update it, accept any prompt it shows, then try again. Good light and a textured floor also help."
+                : "Allow camera access and try again in good light, pointing at a textured floor."}
+            </T>
+            {!!detail && <T style={{ fontSize: 12, color: color.muted }}>AR check: {detail}</T>}
+            {Platform.OS === "android" && <Control primary label="Install or update Google Play Services for AR" onPress={openArCoreStore} />}
+            <Control label="Try again" onPress={restart} />
+            <Control label="Use camera & photo placement" onPress={close} />
+          </View>
+        )}
         <View pointerEvents="box-none" style={[styles.bottom, { paddingBottom: insets.bottom + 14 }]}>
           <View style={styles.hint}>
             <T accessibilityLiveRegion="polite" style={{ color: color.white, fontSize: 14, textAlign: "center" }}>
@@ -360,6 +420,7 @@ const styles = StyleSheet.create({
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 14, gap: 10, alignItems: "center" },
   hint: { backgroundColor: "#20231cd0", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, maxWidth: 480 },
   controls: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
-  control: { minHeight: 48, borderRadius: 24, paddingHorizontal: 18, backgroundColor: "#fffef9f0", flexDirection: "row", alignItems: "center", gap: 8 },
+  control: { minHeight: 48, borderRadius: 24, paddingHorizontal: 18, backgroundColor: "#fffef9f0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   primary: { backgroundColor: color.sage },
+  stalled: { position: "absolute", left: 16, right: 16, top: "28%", backgroundColor: "#fffef9f5", borderRadius: 14, padding: 18, gap: 10, alignItems: "stretch" },
 });

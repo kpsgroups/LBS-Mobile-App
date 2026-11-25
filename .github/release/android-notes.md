@@ -1,10 +1,7 @@
-**Uninstall v0.1.5 or earlier before installing this version.** From 0.1.6 the app is signed with a new LBS release key, so Android cannot install it over older builds. Uninstalling deletes projects saved on the phone: share each project's specification first if you need to keep it. Later versions will install over 0.1.6 and keep your saved designs.
+Installs over 0.1.6 and 0.1.7 and keeps your saved designs. If you still have 0.1.5 or earlier, uninstall it first (share any project specification you want to keep, because uninstalling deletes saved projects).
 
-**View in room now opens full-screen AR** on phones with Google Play Services for AR:
+**Fixes full-size AR not starting**
 
-- A see-through model and a white outline of its real footprint follow the floor and face you. Tap **Place here** when it fits.
-- Drag to move it along the floor, use two fingers or **Turn 15°** to rotate, and **Open doors** to see the interior.
-- **Move** places it again without re-scanning the room.
-- A soft shadow grounds the furniture, and on-screen hints explain when tracking is limited (moving too fast, low light).
-
-Phones without AR still open Floor marker placement or the camera and photo view. [Download the printable A4 marker](https://raw.githubusercontent.com/kpsgroups/LBS-Mobile-App/v0.1.6/public/LBS-floor-marker.pdf) and print it at 100%.
+- View in room failed with "Cannot read property 'getAssetByID' of undefined" while loading the laminate texture into AR, so AR never opened. This is fixed, and the AR view now opens with the selected finish.
+- If Google Play Services for AR is missing or out of date, accept the prompt to install or update it.
+- If AR still does not start, the on-screen panel shows the reason, an **Install or update Google Play Services for AR** button and **Try again**.
